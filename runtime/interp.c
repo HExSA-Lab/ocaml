@@ -224,7 +224,7 @@ static value raise_unhandled;
 typedef struct function_stack { 
     code_t * stack; 
     unsigned long size; 
-    unsigned long top = -1; 
+    unsigned long top; 
 } function_stack_t;
 
 static function_stack t * alloc_func_stack (unsigned long size) { 
@@ -269,19 +269,33 @@ static unsigned long peek(function_stack_t * stack) {
         return stack[top];
 }
 
-static code_t func_stack_push() {
-
+static void func_stack_push(function_stack_t * stack, code_t pc) {
+    
+    if(!isFull(stack)) { 
+        stack.top = stack.top + 1;
+        stack[top] = pc;
+    }
+    else { 
+        fprintf(stderr, "Could not insert data, stack is full. \n"); 
+    }
 }
 
 
 static code_t func_stack_pop(function_stack_t * stack) {
-    printf("UNIMPLEMENTED %s\n", __func__); 
-    return NULL; 
+    
+    unsigned long function_type; 
+
+    if(!isEmpty()) { 
+        function_type = stack[stack.top]; 
+        stack.top = stack.top - 1; 
+        return function_type; 
+    } else { 
+        fprintf("Could not reterive function tpye, stack is empty. \n");
+    }
 }
 
-static void func_stack_push(function_stack_t * stack, code_t pc) {
-    
-}
+// add, multiple, duplicate, etc. etc. 
+// Also could I just return the value such as return stack.size[stack.top--]; 
 
 
 /* The interpreter itself */
