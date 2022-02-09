@@ -221,6 +221,69 @@ static __thread intnat caml_bcodcount;
 
 static value raise_unhandled;
 
+typedef struct function_stack { 
+    code_t * stack; 
+    unsigned long size; 
+    unsigned long top = -1; 
+} function_stack_t;
+
+static function_stack t * alloc_func_stack (unsigned long size) { 
+    function_stack = NULL; 
+    
+    function_stack_counts = malloc((size * sizeof(unsigned long));
+
+    if(!function_stack_counts) { 
+        fprintf(stderr, "Could not allocate function stack array\n");
+        exit(1);
+        }
+    memset(function_stack_counts, 0, size * sizeof(unsigned long)); 
+
+//    printf("UNIMPLEMENTED %s\n", __func__); 
+//    return NULL;
+}
+
+static void isEmpty(function_stack_t * stack) { 
+        if(stack.top == -1) {
+            fprintf("Stack is empty"); 
+            exit(1); 
+        }
+        else {
+            fprintf("There is something in the stack");
+            return 0;
+        }
+}
+
+static void isFull(function_stack_t * stack) { 
+        if(stack.top == (stack.size * sizeof(unsigned long)) { 
+            fprintf("Stack is full");
+            exit(1);
+          }
+
+        else{
+            fprintf("Stack is empty)";
+            return 0;
+        }
+}   
+
+static unsigned long peek(function_stack_t * stack) { 
+        return stack[top];
+}
+
+static code_t func_stack_push() {
+
+}
+
+
+static code_t func_stack_pop(function_stack_t * stack) {
+    printf("UNIMPLEMENTED %s\n", __func__); 
+    return NULL; 
+}
+
+static void func_stack_push(function_stack_t * stack, code_t pc) {
+    
+}
+
+
 /* The interpreter itself */
 
 value caml_interprete(code_t prog, asize_t prog_size)
