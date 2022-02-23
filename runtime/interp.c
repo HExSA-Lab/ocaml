@@ -221,77 +221,135 @@ static __thread intnat caml_bcodcount;
 
 static value raise_unhandled;
 
+#ifdef DEBUG
 typedef struct function_stack { 
-    code_t * stack; 
-    unsigned long size; 
-    unsigned long top; 
+    code_t * stack_data; // the stack is backed by an array of code_t
+    unsigned long nr_items; // number of items the stack currently holds
+    unsigned long max_items; 
+    unsigned long cur_size_bytes; 
+    unsigned long top;    // index  into the array of the top of stack
 } function_stack_t;
 
-static void alloc_func_stack (unsigned long size) { 
-    function_stack = NULL; 
-    unsigned long function_stack_counts; 
-    
-    function_stack_counts = malloc((size * sizeof(unsigned long)));
+// returns a function_stack_t on success
+// returns NULL on error
+static function_stack_t * create_func_stack (unsigned long max_items) { 
 
-    if(!function_stack_counts) { 
-        fprintf(stderr, "Could not allocate function stack array\n");
-        exit(1);
-        }
-    memset(function_stack_counts, 0, size * sizeof(unsigned long)); 
+	code_t * stack_data = NULL;
+	function_stack_t * global_stack = NULL;
 
-//    printf("UNIMPLEMENTED %s\n", __func__); 
-//    return NULL;
+	stack_data = malloc(max_items * sizeof(code_t));
+
+	if (!stack_data) { 
+		fprintf(stderr, "Could not allocate function stack array\n");
+		return NULL;
+	}
+	memset(stack_data, 0, max_items * sizeof(code_t));
+
+	global_stack = malloc(sizeof(function_stack_t)); 
+
+	if (!global_stack) { 
+		fprintf(stderr, "Could not allocate global function stack\n");
+		exit(1);
+	} 
+	memset(global_stack, 0, sizeof(function_stack_t));
+
+	global_stack->stack_data = stack_data; 
+
+	// Max size is the total number of code_t's that the stack can hold.
+	global_stack->max_items = max_items; 
+	global_stack->nr_items = 0;
+	global_stack->cur_size_bytes = 0;
+	global_stack->top = 0; 
+
+	return global_stack;
 }
 
-static void isEmpty(function_stack_t * stack) { 
-        if(stack ->top == -1) {
-            printf("Stack is empty"); 
-            exit(1); 
-        }
-        else {
-            printf("There is something in the stack");       
-        }
+static void destroy_func_stack (function_stack_t * stack) {
+	free(stack->stack_data);
+	free(stack);
+} 
+
+static void dump_func_stack_meta (function_stack_t * stack) {
+	printf("Stack occupancy: %lu\n", stack->nr_items);
+	printf("Stack cur size bytes: %lu\n", stack->cur_size_bytes);
+	printf("Stack max items: %lu\n", stack->max_items);
+	printf("Stack top idx: %lu\n", stack->top);
 }
 
-static void isFull(function_stack_t * stack) { 
-        if(stack -> top == (stack ->size * sizeof(unsigned long))) { 
-            printf("Stack is full");
-            exit(1);
-          }
+static void dump_func_stack (function_stack_t * stack) {
+	dump_func_stack_meta(stack);
 
-        else{
-            printf("Stack is empty");
-        }
+	for (int i = 0; i < stack->nr_items; i++) {
+		if (i == stack->top-1) {
+			printf("[%d] = %p <-- top\n", i, stack->stack_data[i]);
+		} else { 
+			printf("[%d] = %p\n", i, stack->stack_data[i]);
+		}
+	}
+}
+
+
+static inline unsigned long get_nr_items (function_stack_t * stack) {
+	return stack->nr_items;
+}
+static inline unsigned long get_max_items (function_stack_t * stack) {
+	return stack->max_items;
+}
+static inline unsigned long get_top_idx (function_stack_t * stack) {
+	return stack->top;
+}
+static inline unsigned long get_cur_size_bytes (function_stack_t * stack) {
+	return stack->cur_size_bytes;
+}
+
+
+static int isEmpty(function_stack_t * stack) { 
+	return !stack->nr_items;
+}
+
+static inline int isFull(function_stack_t * stack) { 
+	return stack->top == stack->max_items;
 }   
 
-static unsigned long peek(function_stack_t * stack) { 
-        return stack -> top; ;
+// returns a code_t (PC value) on success
+// returns 0 on error
+static inline code_t peek(function_stack_t * stack) { 
+	if (!isEmpty(stack)) {
+		return stack->stack_data[stack->top];
+	}
+	fprintf(stderr, "Attempt to peek empty stack\n");
+	return 0;
 }
 
-static void func_stack_push(function_stack_t * stack, code_t pc) {
-    
-    if(!isFull(stack)) { 
-        stack -> top = stack -> top + 1;
-        stack[top] = pc;
-    }
-    else { 
-        fprintf(stderr, "Could not insert data, stack is full. \n"); 
-    }
+// returns 0 on success
+// -1 on error
+static int func_stack_push(function_stack_t * stack, code_t pc) {
+	if (!isFull(stack)) { 
+		stack->stack_data[stack->top++] = pc;
+		stack->nr_items++;
+		stack->cur_size_bytes += sizeof(code_t);
+		return 0;
+	}
+
+	fprintf(stderr, "Attempt to push onto full stack\n");
+	return -1;
 }
 
 
+// returns a code_t (PC value) on success
+// returns 0 on error
 static code_t func_stack_pop(function_stack_t * stack) {
-    
-    unsigned long function_type; 
+	if (!isEmpty(stack)) { 
+		stack->nr_items--;
+		stack->cur_size_bytes -= sizeof(code_t);
+		return stack->stack_data[--stack->top];
+	} 
 
-    if(!isEmpty()) { 
-        function_type = stack[stack.top]; 
-        stack -> top = stack ->top - 1; 
-        return function_type; 
-    } else { 
-        fprintf("Could not reterive function tpye, stack is empty. \n");
-    }
+	fprintf(stderr, "Attempt to pop empty stack\n");
+	return 0;
 }
+
+#endif /* !DEBUG */
 
 // add, multiple, duplicate, etc. etc. 
 // Also could I just return the value such as return stack.size[stack.top--]; 
@@ -418,6 +476,13 @@ value caml_interprete(code_t prog, asize_t prog_size)
   }
 
   memset(op_counts, 0, FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long));
+
+  function_stack_t * func_stack = create_func_stack(1024);
+  if (!func_stack) {
+	  fprintf(stderr, "Could not allocate func stack\n");
+	  exit(1);
+  }
+
 #endif  
 
 #ifdef THREADED_CODE
@@ -558,6 +623,9 @@ value caml_interprete(code_t prog, asize_t prog_size)
       extra_args = *pc - 1;
       pc = Code_val(accu);
       env = accu;
+#ifdef DEBUG
+      func_stack_push(func_stack, pc);
+#endif
       goto check_stacks;
     }
     Instruct(APPLY1): {
@@ -568,6 +636,9 @@ value caml_interprete(code_t prog, asize_t prog_size)
       sp[2] = env;
       sp[3] = Val_long(extra_args);
       pc = Code_val(accu);
+#ifdef DEBUG
+      func_stack_push(func_stack, pc);
+#endif
       env = accu;
       extra_args = 0;
       goto check_stacks;
@@ -582,6 +653,9 @@ value caml_interprete(code_t prog, asize_t prog_size)
       sp[3] = env;
       sp[4] = Val_long(extra_args);
       pc = Code_val(accu);
+#ifdef DEBUG
+      func_stack_push(func_stack, pc);
+#endif
       env = accu;
       extra_args = 1;
       goto check_stacks;
@@ -598,6 +672,9 @@ value caml_interprete(code_t prog, asize_t prog_size)
       sp[4] = env;
       sp[5] = Val_long(extra_args);
       pc = Code_val(accu);
+#ifdef DEBUG
+      func_stack_push(func_stack, pc);
+#endif
       env = accu;
       extra_args = 2;
       goto check_stacks;
@@ -657,6 +734,9 @@ value caml_interprete(code_t prog, asize_t prog_size)
         extra_args--;
         pc = Code_val(accu);
         env = accu;
+#ifdef DEBUG
+	func_stack_pop(func_stack);
+#endif
         Next;
       } else {
         goto do_return;
@@ -1347,11 +1427,12 @@ value caml_interprete(code_t prog, asize_t prog_size)
 
     Instruct(STOP):
 #ifdef DEBUG
-      printf("Is the program stopping? who knows.\n");
       printf("Total op_count = %lu\n", total_op_count);
       for (int i = 0; i < FIRST_UNIMPLEMENTED_OP; i++) {
           printf("Op_counts[%d] = %lu\n", i, op_counts[i]);
       }
+
+      destroy_func_stack(func_stack);
 #endif
 
       domain_state->external_raise = initial_external_raise;
