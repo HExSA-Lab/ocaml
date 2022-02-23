@@ -227,10 +227,11 @@ typedef struct function_stack {
     unsigned long top; 
 } function_stack_t;
 
-static function_stack t * alloc_func_stack (unsigned long size) { 
+static void alloc_func_stack (unsigned long size) { 
     function_stack = NULL; 
+    unsigned long function_stack_counts; 
     
-    function_stack_counts = malloc((size * sizeof(unsigned long));
+    function_stack_counts = malloc((size * sizeof(unsigned long)));
 
     if(!function_stack_counts) { 
         fprintf(stderr, "Could not allocate function stack array\n");
@@ -243,36 +244,34 @@ static function_stack t * alloc_func_stack (unsigned long size) {
 }
 
 static void isEmpty(function_stack_t * stack) { 
-        if(stack.top == -1) {
-            fprintf("Stack is empty"); 
+        if(stack ->top == -1) {
+            printf("Stack is empty"); 
             exit(1); 
         }
         else {
-            fprintf("There is something in the stack");
-            return 0;
+            printf("There is something in the stack");       
         }
 }
 
 static void isFull(function_stack_t * stack) { 
-        if(stack.top == (stack.size * sizeof(unsigned long)) { 
-            fprintf("Stack is full");
+        if(stack -> top == (stack ->size * sizeof(unsigned long))) { 
+            printf("Stack is full");
             exit(1);
           }
 
         else{
-            fprintf("Stack is empty)";
-            return 0;
+            printf("Stack is empty");
         }
 }   
 
 static unsigned long peek(function_stack_t * stack) { 
-        return stack[top];
+        return stack -> top; ;
 }
 
 static void func_stack_push(function_stack_t * stack, code_t pc) {
     
     if(!isFull(stack)) { 
-        stack.top = stack.top + 1;
+        stack -> top = stack -> top + 1;
         stack[top] = pc;
     }
     else { 
@@ -287,7 +286,7 @@ static code_t func_stack_pop(function_stack_t * stack) {
 
     if(!isEmpty()) { 
         function_type = stack[stack.top]; 
-        stack.top = stack.top - 1; 
+        stack -> top = stack ->top - 1; 
         return function_type; 
     } else { 
         fprintf("Could not reterive function tpye, stack is empty. \n");
