@@ -1,6 +1,6 @@
 OCAMLC = ocamlc 
 
-DEBUG_OFF_FLAG = -runtime-variant d 
+DEBUG_OFF_FLAG = -runtime-variant d -dinstr  
 
 RM = rm -rf 
 

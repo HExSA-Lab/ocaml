@@ -331,6 +331,7 @@ static int func_stack_push(function_stack_t * stack, code_t pc) {
 		stack->stack_data[stack->top++] = pc;
 		stack->nr_items++;
 		stack->cur_size_bytes += sizeof(code_t);
+        dump_func_stack_meta(stack); 
 		return 0;
 	}
 
@@ -345,6 +346,7 @@ static code_t func_stack_pop(function_stack_t * stack) {
 	if (!isEmpty(stack)) { 
 		stack->nr_items--;
 		stack->cur_size_bytes -= sizeof(code_t);
+        dump_func_stack_meta(stack);
 		return stack->stack_data[--stack->top];
 	} 
 
@@ -736,7 +738,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
         extra_args--;
         pc = Code_val(accu);
         env = accu;
-#ifdef DEBUG
+#ifdef DEBUG    
 	func_stack_pop(func_stack);
 #endif
         Next;
@@ -746,6 +748,10 @@ value caml_interprete(code_t prog, asize_t prog_size)
     }
 
     do_return:
+
+#ifdef DEBUG 
+    func_stack_pop(func_stack);
+#endif
       if (sp == Stack_high(domain_state->current_stack)) {
         /* return to parent stack */
         struct stack_info* old_stack = domain_state->current_stack;
@@ -762,9 +768,6 @@ value caml_interprete(code_t prog, asize_t prog_size)
         sp++;
         sp[0] = accu;
         
-#ifdef DEBUG 
-    func_stack_pop(func_stack);
-#endif
         accu = hval;
         pc = Code_val(accu);
         env = accu;
