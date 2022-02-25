@@ -269,12 +269,14 @@ static void destroy_func_stack (function_stack_t * stack) {
 	free(stack);
 } 
 
+
 static void dump_func_stack_meta (function_stack_t * stack) {
 	printf("Stack occupancy: %lu\n", stack->nr_items);
 	printf("Stack cur size bytes: %lu\n", stack->cur_size_bytes);
 	printf("Stack max items: %lu\n", stack->max_items);
 	printf("Stack top idx: %lu\n", stack->top);
 }
+
 
 static void dump_func_stack (function_stack_t * stack) {
 	dump_func_stack_meta(stack);
@@ -287,7 +289,6 @@ static void dump_func_stack (function_stack_t * stack) {
 		}
 	}
 }
-
 
 static inline unsigned long get_nr_items (function_stack_t * stack) {
 	return stack->nr_items;
@@ -311,6 +312,7 @@ static inline int isFull(function_stack_t * stack) {
 	return stack->top == stack->max_items;
 }   
 
+
 // returns a code_t (PC value) on success
 // returns 0 on error
 static inline code_t peek(function_stack_t * stack) { 
@@ -320,6 +322,7 @@ static inline code_t peek(function_stack_t * stack) {
 	fprintf(stderr, "Attempt to peek empty stack\n");
 	return 0;
 }
+
 
 // returns 0 on success
 // -1 on error
@@ -625,9 +628,6 @@ value caml_interprete(code_t prog, asize_t prog_size)
       extra_args = *pc - 1;
       pc = Code_val(accu);
       env = accu;
-#ifdef DEBUG
-      func_stack_push(func_stack, pc);
-#endif
       goto check_stacks;
     }
     Instruct(APPLY1): {
@@ -761,7 +761,10 @@ value caml_interprete(code_t prog, asize_t prog_size)
         extra_args = Long_val(sp[1]);
         sp++;
         sp[0] = accu;
-
+        
+#ifdef DEBUG 
+    func_stack_pop(func_stack);
+#endif
         accu = hval;
         pc = Code_val(accu);
         env = accu;
@@ -1433,9 +1436,21 @@ value caml_interprete(code_t prog, asize_t prog_size)
       for (int i = 0; i < FIRST_UNIMPLEMENTED_OP; i++) {
           printf("Op_counts[%d] = %lu\n", i, op_counts[i]);
       }
+      dump_func_stack(func_stack); 
+      dump_func_stack_meta(func_stack);
 
       destroy_func_stack(func_stack);
-#endif
+
+        get_nr_items(func_stack);
+        get_max_items(func_stack); 
+        get_top_idx(func_stack); 
+        get_cur_size_bytes(func_stack);
+        peek(func_stack);
+      
+#endif 
+      
+      
+
 
       domain_state->external_raise = initial_external_raise;
       domain_state->trap_sp_off = initial_trap_sp_off;
