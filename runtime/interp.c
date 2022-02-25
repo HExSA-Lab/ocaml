@@ -363,6 +363,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
 #ifdef DEBUG 
   unsigned long * op_counts;  
   unsigned long total_op_count;
+  function_stack_t * func_stack;
 #endif 
 
 #ifdef PC_REG
@@ -477,7 +478,8 @@ value caml_interprete(code_t prog, asize_t prog_size)
 
   memset(op_counts, 0, FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long));
 
-  function_stack_t * func_stack = create_func_stack(1024);
+//  function_stack_t * func_stack;
+  func_stack = create_func_stack(1024);
   if (!func_stack) {
 	  fprintf(stderr, "Could not allocate func stack\n");
 	  exit(1);
