@@ -23,6 +23,8 @@
 #include <assert.h> 
 #include <stdint.h>
 #include <stdlib.h>
+#include <stdbool.h>
+#include <stddef.h>
 
 /* The bytecode interpreter */
 #include <stdio.h>
@@ -242,15 +244,15 @@ typedef struct {
 } ht_entry; 
 
 
-struct ht { 
+typedef struct ht { 
     ht_entry* entries;  // hash slots 
     size_t capacity;    // size of _entries array 
     size_t length;      // number of items in hash table
-}; 
+} ht; 
 
 ht* ht_create(void) { 
     
-    ht* table = mallox(sizeof(ht));
+    ht* table = malloc(sizeof(ht));
 
     if(table == NULL) { 
         return NULL;
@@ -264,7 +266,7 @@ ht* ht_create(void) {
 
     if(table->entries == NULL) {
         free(table);
-        return NULL:
+        return NULL;
     }
 
     return table; 
@@ -341,7 +343,89 @@ static const char* ht_set_entry(ht_entry* entries, size_t capacity, const char* 
     return key; 
 }
 
+// Expand hash table to twice it's size; 
+// Return true on success and false otherwise
+static bool ht_expand(ht* table) {
+    size_t new_capacity = table->capacity * 2; 
 
+    if(new_capacity < table->capacity) { 
+        return false; 
+    }
+
+    ht_entry* new_entries = calloc(new_capacity, sizeof(ht_entry));
+
+    if(new_entries == NULL) { 
+        return false; 
+    }
+
+    for(size_t i = 0; i < table->capacity; i++) {
+        ht_entry entry = table->entries[i];
+
+        if(entry.key != NULL) { 
+            ht_set_entry(new_entries, new_capacity, entry.key, entry.value, NULL);
+        }
+    }
+
+    free(table->entries);
+    table->entries = new_entries; 
+    table->capacity = new_capacity; 
+
+    return true; 
+}
+
+const char* ht_set(ht* table, const char* key, void* value) { 
+    assert(value != NULL); 
+
+    if(value == NULL) { 
+        return NULL;
+    }
+
+    // If length will exceed half of current capacity, expand it
+    if(table -> length >= table->capacity / 2) { 
+        if(!ht_expand(table)) {
+            return NULL;
+        }
+    }
+
+    return ht_set_entry(table->entries, table->capacity, key, value, &table->length);
+}
+
+size_t ht_length(ht* table) { 
+    return table->length; 
+}
+
+// Hash talbe iterator: create with ht_iterator, iterate with ht_next 
+//
+typedef struct { 
+   const char* key;
+   void* value; 
+   ht* _table;
+   size_t _index;  
+} hti; 
+
+hti ht_iterator(ht* table) { 
+    hti it; 
+    it._table = table; 
+    it._index = 0;
+    return it;
+}
+
+bool ht_next(hti* it) { 
+    
+    ht* table = it->_table; 
+    while(it->_index < table->capacity) { 
+        size_t i = it->_index;
+        it->_index++; 
+
+        if(table->entries[i].key != NULL) { 
+            ht_entry entry = table->entries[i];
+            it->key = entry.key;
+            it->value = entry.value; 
+            return true; 
+        }
+    }
+        return false; 
+}
 
 
 #endif
