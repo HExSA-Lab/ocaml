@@ -15,6 +15,15 @@
 
 #define CAML_INTERNALS
 
+// Using the Fowler-Noll-Vo hash function
+#define FNV_OFFSET 1465981039346656037UL
+#define FNV_PRIME 1099511628211UL
+#define CAPACITY 64
+
+#include <assert.h> 
+#include <stdint.h>
+#include <stdlib.h>
+
 /* The bytecode interpreter */
 #include <stdio.h>
 #include <string.h>
@@ -221,6 +230,126 @@ static __thread intnat caml_bcodcount;
 
 static value raise_unhandled;
 
+/*
+ * Hash table implementation using the Fowler-Noll-Vo function (FNV-1a version) 
+ */
+#ifdef DEBUG
+
+// Hash table entry
+typedef struct {
+    const char* key; 
+    void *value; // value is the number of op codes. 
+} ht_entry; 
+
+
+struct ht { 
+    ht_entry* entries;  // hash slots 
+    size_t capacity;    // size of _entries array 
+    size_t length;      // number of items in hash table
+}; 
+
+ht* ht_create(void) { 
+    
+    ht* table = mallox(sizeof(ht));
+
+    if(table == NULL) { 
+        return NULL;
+    }
+
+    table->length = 0;
+    table->capacity = CAPACITY;
+
+    // allocating space for entry buckets 
+    table->entries = calloc(table->capacity, sizeof(ht_entry));
+
+    if(table->entries == NULL) {
+        free(table);
+        return NULL:
+    }
+
+    return table; 
+}
+
+void ht_destroy(ht* table) { 
+    for(size_t i = 0; i < table->capacity; i++) {
+        if(table->entries[i].key != NULL) {
+            free((void*)table->entries[i].key);
+        }
+    }
+
+    free(table->entries);
+    free(table);
+}
+
+static uint64_t hash_key(const char *key) { 
+    uint64_t hash = FNV_OFFSET;
+
+    for(const char *p = key; *p; p++) {
+        hash ^= (uint64_t)(unsigned char)(*p);
+        hash *= FNV_PRIME;
+    }
+    return hash;
+}
+
+void* ht_get(ht* table, const char* key) { 
+    uint64_t hash = hash_key(key); 
+    size_t index =(size_t)(hash & (uint64_t)(table->capacity - 1)); 
+    
+    while(table->entries[index].key != NULL) {
+        if(strcmp(key, table->entries[index].key) == 0) {
+            // Found the key, return the value
+            return table->entries[index].value;
+        }
+
+        // Key wasn't there so move on to the next. 
+        index++; 
+
+        if(index >= table->capacity) {
+            index = 0;
+        }
+    }
+
+    return NULL;
+}
+
+static const char* ht_set_entry(ht_entry* entries, size_t capacity, const char* key, void* value, size_t* plength) {
+    uint64_t hash = hash_key(key); 
+    size_t index = (size_t)(hash & (uint64_t)(capacity - 1));
+
+    while(entries[index].key != NULL) { 
+        if(strcmp(key, entries[index].key) == 0) {
+                entries[index].value = value; 
+                return entries[index].key; 
+            }
+
+        index++;
+
+        if(index >= capacity) { 
+            index = 0; 
+        }
+    }
+
+    if(plength != NULL) {
+        key = strdup(key); 
+        if(key == NULL) {
+            return NULL;
+        }
+        (*plength)++;       
+    }
+    entries[index].key = (char*)key; 
+    entries[index].value = value; 
+    return key; 
+}
+
+
+
+
+#endif
+
+
+/*
+ * Function stack
+ */
 #ifdef DEBUG
 typedef struct function_stack { 
     code_t * stack_data; // the stack is backed by an array of code_t
