@@ -18,7 +18,7 @@
 // Using the Fowler-Noll-Vo hash function
 #define FNV_OFFSET 1465981039346656037UL
 #define FNV_PRIME 1099511628211UL
-#define CAPACITY 64
+#define CAPACITY 16
 
 #include <assert.h> 
 #include <stdint.h>
@@ -482,7 +482,7 @@ static void destroy_func_stack (function_stack_t * stack) {
 	free(stack);
 } 
 
-
+/*
 static void dump_func_stack_meta (function_stack_t * stack) {
 	printf("Stack occupancy: %lu\n", stack->nr_items);
 	printf("Stack cur size bytes: %lu\n", stack->cur_size_bytes);
@@ -516,6 +516,7 @@ static inline unsigned long get_cur_size_bytes (function_stack_t * stack) {
 	return stack->cur_size_bytes;
 }
 
+*/
 
 static int isEmpty(function_stack_t * stack) { 
 	return !stack->nr_items;
@@ -544,7 +545,7 @@ static int func_stack_push(function_stack_t * stack, code_t pc) {
 		stack->stack_data[stack->top++] = pc;
 		stack->nr_items++;
 		stack->cur_size_bytes += sizeof(code_t);
-        dump_func_stack_meta(stack); 
+        //dump_func_stack_meta(stack); 
 		return 0;
 	}
 
@@ -559,7 +560,7 @@ static code_t func_stack_pop(function_stack_t * stack) {
 	if (!isEmpty(stack)) { 
 		stack->nr_items--;
 		stack->cur_size_bytes -= sizeof(code_t);
-        dump_func_stack_meta(stack);
+        //dump_func_stack_meta(stack);
 		return stack->stack_data[--stack->top];
 	} 
 
@@ -581,7 +582,9 @@ value caml_interprete(code_t prog, asize_t prog_size)
 #ifdef DEBUG 
   unsigned long * op_counts;  
   unsigned long total_op_count;
+  unsigned long * curr_op_counts; 
   function_stack_t * func_stack;
+  ht * func_hash_table;
 #endif 
 
 #ifdef PC_REG
@@ -684,7 +687,8 @@ value caml_interprete(code_t prog, asize_t prog_size)
 
 
 #ifdef DEBUG  
-  op_counts = NULL; 
+  op_counts = NULL;
+  curr_op_counts = NULL; 
   total_op_count = 0; 
 
   op_counts = malloc(FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long));
@@ -696,12 +700,25 @@ value caml_interprete(code_t prog, asize_t prog_size)
 
   memset(op_counts, 0, FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long));
 
+
+  curr_op_counts = malloc(FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long)); 
+
+  if(!curr_op_counts) { 
+
+    fprintf(stderr, "Could not allocate function op count array\n"); 
+    exit(1); 
+  }
+
+  memset(curr_op_counts, 0, FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long)); 
+
 //  function_stack_t * func_stack;
   func_stack = create_func_stack(1024);
   if (!func_stack) {
 	  fprintf(stderr, "Could not allocate func stack\n");
 	  exit(1);
   }
+
+  func_hash_table = ht_create(); 
 
 #endif  
 
@@ -962,7 +979,8 @@ value caml_interprete(code_t prog, asize_t prog_size)
 
     do_return:
 
-#ifdef DEBUG 
+#ifdef DEBUG
+    ht_set(func_hash_table, (const char*)peek(func_stack), (void *)total_op_count);  
     func_stack_pop(func_stack);
 #endif
       if (sp == Stack_high(domain_state->current_stack)) {
@@ -1652,16 +1670,16 @@ value caml_interprete(code_t prog, asize_t prog_size)
       for (int i = 0; i < FIRST_UNIMPLEMENTED_OP; i++) {
           printf("Op_counts[%d] = %lu\n", i, op_counts[i]);
       }
-      dump_func_stack(func_stack); 
-      dump_func_stack_meta(func_stack);
+//      dump_func_stack(func_stack); 
+//      dump_func_stack_meta(func_stack);
 
       destroy_func_stack(func_stack);
-
-        get_nr_items(func_stack);
-        get_max_items(func_stack); 
-        get_top_idx(func_stack); 
-        get_cur_size_bytes(func_stack);
-        peek(func_stack);
+      ht_destroy(func_hash_table); 
+//        get_nr_items(func_stack);
+//        get_max_items(func_stack); 
+//        get_top_idx(func_stack); 
+//        get_cur_size_bytes(func_stack);
+//        peek(func_stack);
       
 #endif 
       
