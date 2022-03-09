@@ -1,8 +1,10 @@
 OCAMLC = ocamlc 
 
-#DEBUG_OFF_FLAG = -runtime-variant d -dinstr  
-
+ifeq ($(DUMP), 1)
+DEBUG_OFF_FLAG = -runtime-variant d -dinstr  
+else
 DEBUG_OFF_FLAG = -runtime-variant d
+endif
 
 RM = rm -rf 
 

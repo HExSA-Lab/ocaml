@@ -63,6 +63,11 @@ sp is a local copy of the global variable Caml_state->extern_sp. */
 
 /* Instruction decoding */
 
+#define RUNTIME_ERR(fmt, args...) fprintf(stderr, "MD RUNTIME ERROR: " fmt " at %s\n", ##args, __func__)
+#define RUNTIME_WARN(fmt, args...) printf("MD RUNTIME WARNING: " fmt " at %s\n", ##args, __func__)
+
+#define CHECK_PC(pc) if ((pc) == NULL) {RUNTIME_WARN("PC FOR THIS STACK IS NULL (pc=%p)", (pc));}
+
 #ifdef THREADED_CODE
 #  define Instruct(name) lbl_##name
 #  if defined(ARCH_SIXTYFOUR) && !defined(ARCH_CODE32)
@@ -315,8 +320,15 @@ void* ht_get(ht* table, const char* key) {
 }
 
 static const char* ht_set_entry(ht_entry* entries, size_t capacity, const char* key, void* value, size_t* plength) {
-    uint64_t hash = hash_key(key); 
-    size_t index = (size_t)(hash & (uint64_t)(capacity - 1));
+    uint64_t hash;
+    size_t index;
+
+    if (!key) { 
+        RUNTIME_ERR("Attempt to reference NULL key");
+        exit(EXIT_FAILURE);
+    }
+    hash = hash_key(key);
+    index = (size_t)(hash & (uint64_t)(capacity - 1));
 
     while(entries[index].key != NULL) { 
         if(strcmp(key, entries[index].key) == 0) {
@@ -346,13 +358,14 @@ static const char* ht_set_entry(ht_entry* entries, size_t capacity, const char* 
 // Expand hash table to twice it's size; 
 // Return true on success and false otherwise
 static bool ht_expand(ht* table) {
+    ht_entry * new_entries;
     size_t new_capacity = table->capacity * 2; 
 
     if(new_capacity < table->capacity) { 
         return false; 
     }
 
-    ht_entry* new_entries = calloc(new_capacity, sizeof(ht_entry));
+    new_entries = calloc(new_capacity, sizeof(ht_entry));
 
     if(new_entries == NULL) { 
         return false; 
@@ -376,12 +389,17 @@ static bool ht_expand(ht* table) {
 const char* ht_set(ht* table, const char* key, void* value) { 
     assert(value != NULL); 
 
+    if (key == NULL) {
+        RUNTIME_ERR("Attempt to set NULL key");
+        exit(EXIT_FAILURE);
+    }
+
     if(value == NULL) { 
         return NULL;
     }
 
     // If length will exceed half of current capacity, expand it
-    if(table -> length >= table->capacity / 2) { 
+    if(table->length >= table->capacity / 2) { 
         if(!ht_expand(table)) {
             return NULL;
         }
@@ -482,7 +500,6 @@ static void destroy_func_stack (function_stack_t * stack) {
 	free(stack);
 } 
 
-/*
 static void dump_func_stack_meta (function_stack_t * stack) {
 	printf("Stack occupancy: %lu\n", stack->nr_items);
 	printf("Stack cur size bytes: %lu\n", stack->cur_size_bytes);
@@ -496,7 +513,7 @@ static void dump_func_stack (function_stack_t * stack) {
 
 	for (int i = 0; i < stack->nr_items; i++) {
 		if (i == stack->top-1) {
-			printf("[%d] = %p <-- top\n", i, stack->stack_data[i]);
+			printf("[%d] = %p <-- last item\n", i, stack->stack_data[i]);
 		} else { 
 			printf("[%d] = %p\n", i, stack->stack_data[i]);
 		}
@@ -516,7 +533,6 @@ static inline unsigned long get_cur_size_bytes (function_stack_t * stack) {
 	return stack->cur_size_bytes;
 }
 
-*/
 
 static int isEmpty(function_stack_t * stack) { 
 	return !stack->nr_items;
@@ -531,9 +547,11 @@ static inline int isFull(function_stack_t * stack) {
 // returns 0 on error
 static inline code_t peek(function_stack_t * stack) { 
 	if (!isEmpty(stack)) {
-		return stack->stack_data[stack->top];
+        if (!stack->stack_data[stack->top-1])
+            RUNTIME_WARN("Top stack entry is NULL");
+		return stack->stack_data[stack->top-1];
 	}
-	fprintf(stderr, "Attempt to peek empty stack\n");
+	RUNTIME_ERR("Attempt to peek empty stack");
 	return 0;
 }
 
@@ -549,7 +567,7 @@ static int func_stack_push(function_stack_t * stack, code_t pc) {
 		return 0;
 	}
 
-	fprintf(stderr, "Attempt to push onto full stack\n");
+	RUNTIME_ERR("Attempt to push onto full stack");
 	return -1;
 }
 
@@ -860,6 +878,10 @@ value caml_interprete(code_t prog, asize_t prog_size)
       extra_args = *pc - 1;
       pc = Code_val(accu);
       env = accu;
+      CHECK_PC(pc);
+#ifdef DEBUG
+      func_stack_push(func_stack, pc);
+#endif
       goto check_stacks;
     }
     Instruct(APPLY1): {
@@ -870,6 +892,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
       sp[2] = env;
       sp[3] = Val_long(extra_args);
       pc = Code_val(accu);
+      CHECK_PC(pc);
 #ifdef DEBUG
       func_stack_push(func_stack, pc);
 #endif
@@ -887,6 +910,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
       sp[3] = env;
       sp[4] = Val_long(extra_args);
       pc = Code_val(accu);
+      CHECK_PC(pc);
 #ifdef DEBUG
       func_stack_push(func_stack, pc);
 #endif
@@ -906,6 +930,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
       sp[4] = env;
       sp[5] = Val_long(extra_args);
       pc = Code_val(accu);
+      CHECK_PC(pc);
 #ifdef DEBUG
       func_stack_push(func_stack, pc);
 #endif
@@ -969,20 +994,21 @@ value caml_interprete(code_t prog, asize_t prog_size)
         pc = Code_val(accu);
         env = accu;
 #ifdef DEBUG    
+    ht_set(func_hash_table, (const char*)peek(func_stack), (void *)total_op_count);  
 	func_stack_pop(func_stack);
 #endif
         Next;
       } else {
+#ifdef DEBUG
+    ht_set(func_hash_table, (const char*)peek(func_stack), (void *)total_op_count);  
+    func_stack_pop(func_stack);
+#endif
         goto do_return;
       }
     }
 
     do_return:
 
-#ifdef DEBUG
-    ht_set(func_hash_table, (const char*)peek(func_stack), (void *)total_op_count);  
-    func_stack_pop(func_stack);
-#endif
       if (sp == Stack_high(domain_state->current_stack)) {
         /* return to parent stack */
         struct stack_info* old_stack = domain_state->current_stack;
