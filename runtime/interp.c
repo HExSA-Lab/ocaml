@@ -699,10 +699,13 @@ value caml_interprete(code_t prog, asize_t prog_size)
   env = Atom(0);
   accu = Val_int(0);
 
+/* Checkse if not defined for DEBUG is running */ 
+// Commenting out to remove annoyances
+/*   
 #ifndef DEBUG
   fprintf(stderr, "Not defined for DEBUG is running\n"); 
 #endif 
-
+*/
 
 #ifdef DEBUG  
   op_counts = NULL;
@@ -1696,7 +1699,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
       for (int i = 0; i < FIRST_UNIMPLEMENTED_OP; i++) {
           printf("Op_counts[%d] = %lu\n", i, op_counts[i]);
       }
-//      dump_func_stack(func_stack); 
+        dump_func_stack(func_stack); 
 //      dump_func_stack_meta(func_stack);
 
       destroy_func_stack(func_stack);
