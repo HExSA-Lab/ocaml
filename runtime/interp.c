@@ -279,16 +279,19 @@ ht* ht_create(void) {
 
 void ht_destroy(ht* table) { 
     for(size_t i = 0; i < table->capacity; i++) {
+#if 0
         if(table->entries[i].key != NULL) {
             free((void*)table->entries[i].key);
         }
+#endif
     }
 
     free(table->entries);
     free(table);
 }
 
-static uint64_t hash_key(const char *key) { 
+/*
+static uint64_t hash_key_buffer(const char *key) { 
     uint64_t hash = FNV_OFFSET;
 
     for(const char *p = key; *p; p++) {
@@ -297,13 +300,34 @@ static uint64_t hash_key(const char *key) {
     }
     return hash;
 }
+*/
+static inline uint64_t hash_key(const char * key) {
+	unsigned long hash = (unsigned long)key;
+	unsigned long n = hash;
+	n <<= 18;
+	hash -= n;
+	n <<= 33;
+	hash -= n;
+	n <<= 3;
+	hash += n;
+	n <<= 3;
+	hash -= n;
+	n <<= 4;
+	hash += n;
+	n <<= 2;
+	hash += n;
+	return hash;
+}
 
 void* ht_get(ht* table, const char* key) { 
     uint64_t hash = hash_key(key); 
     size_t index =(size_t)(hash & (uint64_t)(table->capacity - 1)); 
     
-    while(table->entries[index].key != NULL) {
+    while (table->entries[index].key != NULL) {
+#if 0
         if(strcmp(key, table->entries[index].key) == 0) {
+#endif 
+	if ((void*)key == (void*)table->entries[index].key) {
             // Found the key, return the value
             return table->entries[index].value;
         }
@@ -311,7 +335,7 @@ void* ht_get(ht* table, const char* key) {
         // Key wasn't there so move on to the next. 
         index++; 
 
-        if(index >= table->capacity) {
+        if (index >= table->capacity) {
             index = 0;
         }
     }
@@ -331,23 +355,28 @@ static const char* ht_set_entry(ht_entry* entries, size_t capacity, const char* 
     index = (size_t)(hash & (uint64_t)(capacity - 1));
 
     while(entries[index].key != NULL) { 
-        if(strcmp(key, entries[index].key) == 0) {
-                entries[index].value = value; 
-                return entries[index].key; 
-            }
+#if 0
+        if (strcmp(key, entries[index].key) == 0) {
+#endif
+	if ((void*)key == (void*)entries[index].key) {
+		entries[index].value = value; 
+		return entries[index].key; 
+	}
 
         index++;
 
-        if(index >= capacity) { 
+        if (index >= capacity) { 
             index = 0; 
         }
     }
 
-    if(plength != NULL) {
+    if (plength != NULL) {
+#if 0
         key = strdup(key); 
         if(key == NULL) {
             return NULL;
         }
+#endif
         (*plength)++;       
     }
     entries[index].key = (char*)key; 
@@ -361,13 +390,15 @@ static bool ht_expand(ht* table) {
     ht_entry * new_entries;
     size_t new_capacity = table->capacity * 2; 
 
-    if(new_capacity < table->capacity) { 
+    if (new_capacity < table->capacity) { 
+	RUNTIME_ERR("Capacity error");
         return false; 
     }
 
     new_entries = calloc(new_capacity, sizeof(ht_entry));
 
-    if(new_entries == NULL) { 
+    if (new_entries == NULL) { 
+	RUNTIME_ERR("Calloc failed in ht_expand");
         return false; 
     }
 
@@ -394,14 +425,16 @@ const char* ht_set(ht* table, const char* key, void* value) {
         exit(EXIT_FAILURE);
     }
 
-    if(value == NULL) { 
+    if (value == NULL) { 
+	RUNTIME_ERR("Attempt to set NULL value");
         return NULL;
     }
 
     // If length will exceed half of current capacity, expand it
-    if(table->length >= table->capacity / 2) { 
-        if(!ht_expand(table)) {
-            return NULL;
+    if (table->length >= table->capacity / 2) { 
+        if (!ht_expand(table)) {
+		RUNTIME_ERR("Could not expand hashtable");
+		return NULL;
         }
     }
 
@@ -444,7 +477,6 @@ bool ht_next(hti* it) {
     }
         return false; 
 }
-
 
 #endif
 
@@ -600,7 +632,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
 #ifdef DEBUG 
   unsigned long * op_counts;  
   unsigned long total_op_count;
-  unsigned long * curr_op_counts; 
+  unsigned long curr_op_counts; 
   function_stack_t * func_stack;
   ht * func_hash_table;
 #endif 
@@ -709,7 +741,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
 
 #ifdef DEBUG  
   op_counts = NULL;
-  curr_op_counts = NULL; 
+  curr_op_counts = 0; 
   total_op_count = 0; 
 
   op_counts = malloc(FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long));
@@ -722,7 +754,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
   memset(op_counts, 0, FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long));
 
 
-  curr_op_counts = malloc(FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long)); 
+  /*curr_op_counts = malloc(FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long)); 
 
   if(!curr_op_counts) { 
 
@@ -731,7 +763,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
   }
 
   memset(curr_op_counts, 0, FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long)); 
-
+*/
 //  function_stack_t * func_stack;
   func_stack = create_func_stack(1024);
   if (!func_stack) {
@@ -748,7 +780,8 @@ value caml_interprete(code_t prog, asize_t prog_size)
  next_instr:
   if (*pc < FIRST_UNIMPLEMENTED_OP) {
       op_counts[*pc]++;  
-      total_op_count++; 
+      total_op_count++;
+      curr_op_counts++;  
   } else {
       fprintf(stderr, "Trying to inc opcode %u\n", *pc);
   }
@@ -777,7 +810,8 @@ value caml_interprete(code_t prog, asize_t prog_size)
 
     if (*pc < FIRST_UNIMPLEMENTED_OP) {
         op_counts[*pc]++;  
-        total_op_count++; 
+        total_op_count++;
+        curr_op_counts++;	
     } else {
         fprintf(stderr, "ERROR: Trying to inc opcode %u but it's invalid\n", *pc);
     }
@@ -996,15 +1030,19 @@ value caml_interprete(code_t prog, asize_t prog_size)
         extra_args--;
         pc = Code_val(accu);
         env = accu;
-#ifdef DEBUG    
-    ht_set(func_hash_table, (const char*)peek(func_stack), (void *)total_op_count);  
-	func_stack_pop(func_stack);
+#ifdef DEBUG 	
+    ht_set(func_hash_table, (const char*)peek(func_stack), (void *)curr_op_counts);  
+	printf("Key %p:\n", (void*)peek(func_stack));
+    func_stack_pop(func_stack);
+	curr_op_counts = 0;
 #endif
         Next;
       } else {
 #ifdef DEBUG
-    ht_set(func_hash_table, (const char*)peek(func_stack), (void *)total_op_count);  
+    ht_set(func_hash_table, (const char*)peek(func_stack), (void *)curr_op_counts);  
+    	printf("Key %p:\n", (void*)peek(func_stack));
     func_stack_pop(func_stack);
+    curr_op_counts = 0;
 #endif
         goto do_return;
       }
@@ -1695,13 +1733,27 @@ value caml_interprete(code_t prog, asize_t prog_size)
 
     Instruct(STOP):
 #ifdef DEBUG
+	
+      // Prints out the total opcounts with respective functions
+      	    
       printf("Total op_count = %lu\n", total_op_count);
       for (int i = 0; i < FIRST_UNIMPLEMENTED_OP; i++) {
           printf("Op_counts[%d] = %lu\n", i, op_counts[i]);
       }
-        dump_func_stack(func_stack); 
-//      dump_func_stack_meta(func_stack);
 
+	    // Prints out hash table 
+	    for(int i = 0; i < func_hash_table->capacity; i++) {
+		    if(func_hash_table->entries[i].key != NULL) { 
+			    printf("index %d: key %p, value %ld\n",
+					    i, func_hash_table->entries[i].key, (long)func_hash_table->entries[i].value);
+		    }
+		    else {
+			    printf("index %d: empty\n", i); 
+		    }		
+	    }
+    dump_func_stack(func_stack); 
+//      dump_func_stack_meta(func_stack);
+	
       destroy_func_stack(func_stack);
       ht_destroy(func_hash_table); 
 //        get_nr_items(func_stack);
