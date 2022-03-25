@@ -632,9 +632,11 @@ value caml_interprete(code_t prog, asize_t prog_size)
 #ifdef DEBUG 
   unsigned long * op_counts;  
   unsigned long total_op_count;
-  unsigned long curr_op_counts; 
+  unsigned long curr_op_counts;
+  unsigned long counter; 
   function_stack_t * func_stack;
   ht * func_hash_table;
+  //hti it; 
 #endif 
 
 #ifdef PC_REG
@@ -1030,19 +1032,57 @@ value caml_interprete(code_t prog, asize_t prog_size)
         extra_args--;
         pc = Code_val(accu);
         env = accu;
-#ifdef DEBUG 	
-    ht_set(func_hash_table, (const char*)peek(func_stack), (void *)curr_op_counts);  
-	printf("Key %p:\n", (void*)peek(func_stack));
-    func_stack_pop(func_stack);
-	curr_op_counts = 0;
+#ifdef DEBUG 
+do{	
+	printf("Key: %p\n", (void *)peek(func_stack));
+	ht_set(func_hash_table, (const char *)peek(func_stack), (void *)1); 	
+
+	for(int i = 0; i < func_hash_table->capacity; i++) {
+		      if(func_hash_table->entries[i].key == (void *)peek(func_stack)) {
+			      func_hash_table->entries[i].value += curr_op_counts;	 
+//			      ht_set(func_hash_table, (const char *)peek(func_stack), (void *)curr_op_counts); 
+//			      printf("Key in if statement: %p\n", (void *)peek(func_stack)); 
+			      func_stack_pop(func_stack); 
+			      curr_op_counts = 0;
+			      break;  
+			}
+		}
+	break; 
+} while(true); 
+		
+/*
+	     ht_set(func_hash_table, (const char *)peek(func_stack), (void *)curr_op_counts);
+	     printf("Key %p:\n", (void*)peek(func_stack));
+	     func_stack_pop(func_stack);
+	     curr_op_counts = 0;*/
 #endif
-        Next;
+	Next;
       } else {
 #ifdef DEBUG
-    ht_set(func_hash_table, (const char*)peek(func_stack), (void *)curr_op_counts);  
+do{	
+//	printf("Key: %p\n", (void *)peek(func_stack));
+	ht_set(func_hash_table, (const char *)peek(func_stack), (void *)1); 	
+
+	for(int i = 0; i < func_hash_table->capacity; i++) {
+		      if(func_hash_table->entries[i].key == (void *)peek(func_stack)) { 
+			      func_hash_table->entries[i].value += curr_op_counts;	
+			      //ht_set(func_hash_table, (const char *)peek(func_stack), (void *)curr_op_counts); 
+//			      printf("Key in if statement: %p\n", (void *)peek(func_stack)); 
+			      func_stack_pop(func_stack); 
+			      curr_op_counts = 0;
+			      break;  
+			}
+		}
+	break;	
+} while(true); 
+		
+
+
+
+/*    ht_set(func_hash_table, (const char*)peek(func_stack), (void *)curr_op_counts);  
     	printf("Key %p:\n", (void*)peek(func_stack));
     func_stack_pop(func_stack);
-    curr_op_counts = 0;
+    curr_op_counts = 0; */
 #endif
         goto do_return;
       }
@@ -1737,20 +1777,27 @@ value caml_interprete(code_t prog, asize_t prog_size)
       // Prints out the total opcounts with respective functions
       	    
       printf("Total op_count = %lu\n", total_op_count);
-      for (int i = 0; i < FIRST_UNIMPLEMENTED_OP; i++) {
+      
+      // Counts Op counts for certain function at that time. 	
+      /*for (int i = 0; i < FIRST_UNIMPLEMENTED_OP; i++) {
           printf("Op_counts[%d] = %lu\n", i, op_counts[i]);
-      }
-
+      }*/
+	
+	    counter = 0; 
 	    // Prints out hash table 
-	    for(int i = 0; i < func_hash_table->capacity; i++) {
+	    for(int i = 0; i < func_hash_table->capacity; i++) {;
 		    if(func_hash_table->entries[i].key != NULL) { 
 			    printf("index %d: key %p, value %ld\n",
 					    i, func_hash_table->entries[i].key, (long)func_hash_table->entries[i].value);
-		    }
+		    	    counter += (long)func_hash_table->entries[i].value; 
+			}
 		    else {
 			    printf("index %d: empty\n", i); 
 		    }		
 	    }
+
+	printf("Unique Functions: %d\n", (int)ht_length(func_hash_table));
+	printf("Total Number of Counts from Hash table: %ld\n", counter); 
     dump_func_stack(func_stack); 
 //      dump_func_stack_meta(func_stack);
 	
