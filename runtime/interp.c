@@ -237,6 +237,152 @@ static __thread intnat caml_bcodcount;
 
 static value raise_unhandled;
 
+
+/*
+ * Function stack
+ */
+#ifdef DEBUG
+typedef struct function_stack { 
+    code_t * stack_data; // the stack is backed by an array of code_t
+    unsigned long nr_items; // number of items the stack currently holds
+    unsigned long max_items; 
+    unsigned long cur_size_bytes; 
+    unsigned long top;    // index  into the array of the top of stack
+} function_stack_t;
+
+// returns a function_stack_t on success
+// returns NULL on error
+static function_stack_t * create_func_stack(unsigned long max_items) { 
+
+	code_t * stack_data = NULL;
+	function_stack_t * global_stack = NULL;
+
+	stack_data = malloc(max_items * sizeof(code_t));
+
+	if (!stack_data) { 
+		fprintf(stderr, "Could not allocate function stack array\n");
+		return NULL;
+	}
+	memset(stack_data, 0, max_items * sizeof(code_t));
+	
+	global_stack = malloc(sizeof(function_stack_t)); 
+
+	if (!global_stack) { 
+		fprintf(stderr, "Could not allocate global function stack\n");
+		exit(1);
+	} 
+	memset(global_stack, 0, sizeof(function_stack_t));
+	
+	global_stack->stack_data = stack_data; 
+
+	// Max size is the total number of code_t's that the stack can hold.
+	global_stack->max_items = max_items; 
+	global_stack->nr_items = 0;
+	global_stack->cur_size_bytes = 0;
+	global_stack->top = 0; 
+
+	return global_stack;
+}
+/*
+static function_stack_t * create_func_stack(unsigned long max_items) { 
+	
+}*/
+
+
+
+static void destroy_func_stack (function_stack_t * stack) {
+	free(stack->stack_data);
+	free(stack);
+} 
+
+static void dump_func_stack_meta (function_stack_t * stack) {
+	printf("Stack occupancy: %lu\n", stack->nr_items);
+	printf("Stack cur size bytes: %lu\n", stack->cur_size_bytes);
+	printf("Stack max items: %lu\n", stack->max_items);
+	printf("Stack top idx: %lu\n", stack->top);
+}
+
+
+static void dump_func_stack (function_stack_t * stack) {
+	dump_func_stack_meta(stack);
+
+	for (int i = 0; i < stack->nr_items; i++) {
+		if (i == stack->top-1) {
+			printf("[%d] = %p <-- last item\n", i, stack->stack_data[i]);
+		} else { 
+			printf("[%d] = %p\n", i, stack->stack_data[i]);
+		}
+	}
+}
+
+static inline unsigned long get_nr_items (function_stack_t * stack) {
+	return stack->nr_items;
+}
+static inline unsigned long get_max_items (function_stack_t * stack) {
+	return stack->max_items;
+}
+static inline unsigned long get_top_idx (function_stack_t * stack) {
+	return stack->top;
+}
+static inline unsigned long get_cur_size_bytes (function_stack_t * stack) {
+	return stack->cur_size_bytes;
+}
+
+
+static int isEmpty(function_stack_t * stack) { 
+	return !stack->nr_items;
+}
+
+static inline int isFull(function_stack_t * stack) { 
+	return stack->top == stack->max_items;
+}   
+
+
+// returns a code_t (PC value) on success
+// returns 0 on error
+static inline code_t peek(function_stack_t * stack) { 
+	if (!isEmpty(stack)) {
+        if (!stack->stack_data[stack->top-1])
+            RUNTIME_WARN("Top stack entry is NULL");
+		return stack->stack_data[stack->top-1];
+	}
+	RUNTIME_ERR("Attempt to peek empty stack");
+	return 0;
+}
+
+
+// returns 0 on success
+// -1 on error
+static int func_stack_push(function_stack_t * stack, code_t pc) {
+	if (!isFull(stack)) { 
+		stack->stack_data[stack->top++] = pc;
+		stack->nr_items++;
+		stack->cur_size_bytes += sizeof(code_t);
+        //dump_func_stack_meta(stack); 
+		return 0;
+	}
+
+	RUNTIME_ERR("Attempt to push onto full stack");
+	return -1;
+}
+
+
+// returns a code_t (PC value) on success
+// returns 0 on error
+static code_t func_stack_pop(function_stack_t * stack) {
+	if (!isEmpty(stack)) { 
+		stack->nr_items--;
+		stack->cur_size_bytes -= sizeof(code_t);
+        //dump_func_stack_meta(stack);
+		return stack->stack_data[--stack->top];
+	} 
+
+	fprintf(stderr, "Attempt to pop empty stack\n");
+	return 0;
+}
+
+#endif /* !DEBUG */
+
 /*
  * Hash table implementation using the Fowler-Noll-Vo function (FNV-1a version) 
  */
@@ -445,6 +591,45 @@ size_t ht_length(ht* table) {
     return table->length; 
 }
 
+
+static void ht_curr_inc_opcount(ht* table, function_stack_t * func_stack, opcode_t opcode) { 
+	
+	unsigned long * temp_curr_op_counts = NULL;
+	code_t curr_func = NULL;
+
+	curr_func = peek(func_stack);
+	
+	assert(curr_func != NULL);
+
+	temp_curr_op_counts = ht_get(table, (const char *)curr_func);
+
+	assert(temp_curr_op_counts != NULL);
+	
+	if (opcode < FIRST_UNIMPLEMENTED_OP) { 
+		temp_curr_op_counts[opcode]++; 
+	} else { 
+		RUNTIME_ERR("Trying to increment invalid opcode %u", opcode);
+	}
+	
+}
+
+static void array_alloc_op_counts(ht * table, function_stack_t * func_stack) { 
+	
+	unsigned long * curr_opcount_array = malloc(FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long)); 
+	code_t curr_func = peek(func_stack); 
+	
+	assert(curr_func != NULL); 
+
+	if(!curr_opcount_array) { 
+		RUNTIME_ERR("Could not allocated array"); 
+		return;
+	}
+
+	memset(curr_opcount_array, 0, FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long)); 
+		
+	ht_set(table, (const char *)curr_func, curr_opcount_array); 
+
+}
 // Hash talbe iterator: create with ht_iterator, iterate with ht_next 
 //
 typedef struct { 
@@ -481,144 +666,6 @@ bool ht_next(hti* it) {
 #endif
 
 
-/*
- * Function stack
- */
-#ifdef DEBUG
-typedef struct function_stack { 
-    code_t * stack_data; // the stack is backed by an array of code_t
-    unsigned long nr_items; // number of items the stack currently holds
-    unsigned long max_items; 
-    unsigned long cur_size_bytes; 
-    unsigned long top;    // index  into the array of the top of stack
-} function_stack_t;
-
-// returns a function_stack_t on success
-// returns NULL on error
-static function_stack_t * create_func_stack (unsigned long max_items) { 
-
-	code_t * stack_data = NULL;
-	function_stack_t * global_stack = NULL;
-
-	stack_data = malloc(max_items * sizeof(code_t));
-
-	if (!stack_data) { 
-		fprintf(stderr, "Could not allocate function stack array\n");
-		return NULL;
-	}
-	memset(stack_data, 0, max_items * sizeof(code_t));
-
-	global_stack = malloc(sizeof(function_stack_t)); 
-
-	if (!global_stack) { 
-		fprintf(stderr, "Could not allocate global function stack\n");
-		exit(1);
-	} 
-	memset(global_stack, 0, sizeof(function_stack_t));
-
-	global_stack->stack_data = stack_data; 
-
-	// Max size is the total number of code_t's that the stack can hold.
-	global_stack->max_items = max_items; 
-	global_stack->nr_items = 0;
-	global_stack->cur_size_bytes = 0;
-	global_stack->top = 0; 
-
-	return global_stack;
-}
-
-static void destroy_func_stack (function_stack_t * stack) {
-	free(stack->stack_data);
-	free(stack);
-} 
-
-static void dump_func_stack_meta (function_stack_t * stack) {
-	printf("Stack occupancy: %lu\n", stack->nr_items);
-	printf("Stack cur size bytes: %lu\n", stack->cur_size_bytes);
-	printf("Stack max items: %lu\n", stack->max_items);
-	printf("Stack top idx: %lu\n", stack->top);
-}
-
-
-static void dump_func_stack (function_stack_t * stack) {
-	dump_func_stack_meta(stack);
-
-	for (int i = 0; i < stack->nr_items; i++) {
-		if (i == stack->top-1) {
-			printf("[%d] = %p <-- last item\n", i, stack->stack_data[i]);
-		} else { 
-			printf("[%d] = %p\n", i, stack->stack_data[i]);
-		}
-	}
-}
-
-static inline unsigned long get_nr_items (function_stack_t * stack) {
-	return stack->nr_items;
-}
-static inline unsigned long get_max_items (function_stack_t * stack) {
-	return stack->max_items;
-}
-static inline unsigned long get_top_idx (function_stack_t * stack) {
-	return stack->top;
-}
-static inline unsigned long get_cur_size_bytes (function_stack_t * stack) {
-	return stack->cur_size_bytes;
-}
-
-
-static int isEmpty(function_stack_t * stack) { 
-	return !stack->nr_items;
-}
-
-static inline int isFull(function_stack_t * stack) { 
-	return stack->top == stack->max_items;
-}   
-
-
-// returns a code_t (PC value) on success
-// returns 0 on error
-static inline code_t peek(function_stack_t * stack) { 
-	if (!isEmpty(stack)) {
-        if (!stack->stack_data[stack->top-1])
-            RUNTIME_WARN("Top stack entry is NULL");
-		return stack->stack_data[stack->top-1];
-	}
-	RUNTIME_ERR("Attempt to peek empty stack");
-	return 0;
-}
-
-
-// returns 0 on success
-// -1 on error
-static int func_stack_push(function_stack_t * stack, code_t pc) {
-	if (!isFull(stack)) { 
-		stack->stack_data[stack->top++] = pc;
-		stack->nr_items++;
-		stack->cur_size_bytes += sizeof(code_t);
-        //dump_func_stack_meta(stack); 
-		return 0;
-	}
-
-	RUNTIME_ERR("Attempt to push onto full stack");
-	return -1;
-}
-
-
-// returns a code_t (PC value) on success
-// returns 0 on error
-static code_t func_stack_pop(function_stack_t * stack) {
-	if (!isEmpty(stack)) { 
-		stack->nr_items--;
-		stack->cur_size_bytes -= sizeof(code_t);
-        //dump_func_stack_meta(stack);
-		return stack->stack_data[--stack->top];
-	} 
-
-	fprintf(stderr, "Attempt to pop empty stack\n");
-	return 0;
-}
-
-#endif /* !DEBUG */
 
 // add, multiple, duplicate, etc. etc. 
 // Also could I just return the value such as return stack.size[stack.top--]; 
@@ -632,9 +679,10 @@ value caml_interprete(code_t prog, asize_t prog_size)
 #ifdef DEBUG 
   unsigned long * op_counts;  
   unsigned long total_op_count;
-  unsigned long curr_op_counts;
+  unsigned long * curr_op_counts;
   unsigned long counter; 
-  function_stack_t * func_stack;
+  function_stack_t * global_func_stack;
+  function_stack_t * local_func_stack; 
   ht * func_hash_table;
   //hti it; 
 #endif 
@@ -744,9 +792,9 @@ value caml_interprete(code_t prog, asize_t prog_size)
 #ifdef DEBUG  
   op_counts = NULL;
   curr_op_counts = 0; 
-  total_op_count = 0; 
+ // total_op_count = 0; 
 
-  op_counts = malloc(FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long));
+ /* op_counts = malloc(FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long));
 
   if(!op_counts) { 
 	fprintf(stderr, "Could not allocate op count array\n"); 
@@ -756,7 +804,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
   memset(op_counts, 0, FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long));
 
 
-  /*curr_op_counts = malloc(FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long)); 
+  curr_op_counts = malloc(FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long)); 
 
   if(!curr_op_counts) { 
 
@@ -766,12 +814,18 @@ value caml_interprete(code_t prog, asize_t prog_size)
 
   memset(curr_op_counts, 0, FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long)); 
 */
-//  function_stack_t * func_stack;
-  func_stack = create_func_stack(1024);
-  if (!func_stack) {
-	  fprintf(stderr, "Could not allocate func stack\n");
+ // function_stack_t * func_stack;
+  global_func_stack = create_func_stack(1024);
+  if (!global_func_stack) {
+	  fprintf(stderr, "Could not allocate global func stack\n");
 	  exit(1);
   }
+
+  local_func_stack = create_func_stack(1024); 
+  if(!local_func_stack) { 
+	  fprintf(stderr, "Could not allocate local func stack\n"); 
+	  exit(1); 
+	}	
 
   func_hash_table = ht_create(); 
 
@@ -784,6 +838,8 @@ value caml_interprete(code_t prog, asize_t prog_size)
       op_counts[*pc]++;  
       total_op_count++;
       curr_op_counts++;  
+     func_stack_push(local_func_stack, pc); 
+     ht_curr_inc_opcount(func_hash_table, local_func_stack, *pc); 	
   } else {
       fprintf(stderr, "Trying to inc opcode %u\n", *pc);
   }
@@ -811,9 +867,11 @@ value caml_interprete(code_t prog, asize_t prog_size)
     CAMLassert(sp <= Stack_high(domain_state->current_stack));
 
     if (*pc < FIRST_UNIMPLEMENTED_OP) {
-        op_counts[*pc]++;  
+       op_counts[*pc]++;  
         total_op_count++;
-        curr_op_counts++;	
+        curr_op_counts++;
+	func_stack_push(local_func_stack, pc); 
+	ht_curr_inc_opcount(func_hash_table, local_func_stack, *pc); 	
     } else {
         fprintf(stderr, "ERROR: Trying to inc opcode %u but it's invalid\n", *pc);
     }
@@ -903,186 +961,165 @@ value caml_interprete(code_t prog, asize_t prog_size)
       accu = Field(env, *pc++);
       Next;
 
-/* Function application */
+      /* Function application */
 
-    Instruct(PUSH_RETADDR): {
-      sp -= 3;
-      sp[0] = (value) (pc + *pc);
-      sp[1] = env;
-      sp[2] = Val_long(extra_args);
-      pc++;
-      Next;
-    }
-    Instruct(APPLY): {
-      extra_args = *pc - 1;
-      pc = Code_val(accu);
-      env = accu;
-      CHECK_PC(pc);
+      Instruct(PUSH_RETADDR): {
+	      sp -= 3;
+	      sp[0] = (value) (pc + *pc);
+	      sp[1] = env;
+	      sp[2] = Val_long(extra_args);
+	      pc++;
+	      Next;
+      }
+	
+	Instruct(APPLY): {
+		extra_args = *pc - 1;
+	      pc = Code_val(accu);
+	      env = accu;
+	      CHECK_PC(pc);
 #ifdef DEBUG
-      func_stack_push(func_stack, pc);
+	      func_stack_push(global_func_stack, pc);
+		dump_func_stack(local_func_stack); 			
+	     ht_curr_inc_opcount(func_hash_table, global_func_stack, *pc); 
+	      printf("Are we heading in here?\n"); 
+	      array_alloc_op_counts(func_hash_table, local_func_stack); 	
 #endif
-      goto check_stacks;
-    }
-    Instruct(APPLY1): {
-      value arg1 = sp[0];
-      sp -= 3;
-      sp[0] = arg1;
-      sp[1] = (value)pc;
-      sp[2] = env;
-      sp[3] = Val_long(extra_args);
-      pc = Code_val(accu);
-      CHECK_PC(pc);
+	      goto check_stacks;
+      }
+      Instruct(APPLY1): {
+	      value arg1 = sp[0];
+	      sp -= 3;
+	      sp[0] = arg1;
+	      sp[1] = (value)pc;
+	      sp[2] = env;
+	      sp[3] = Val_long(extra_args);
+	      pc = Code_val(accu);
+	      CHECK_PC(pc);
 #ifdef DEBUG
-      func_stack_push(func_stack, pc);
+	      func_stack_push(global_func_stack, pc);
+		dump_func_stack(local_func_stack); 
+	ht_curr_inc_opcount(func_hash_table, global_func_stack, *pc); 
+	      printf("Are we heading in here?\n"); 
+	      array_alloc_op_counts(func_hash_table, local_func_stack); 
 #endif
-      env = accu;
-      extra_args = 0;
-      goto check_stacks;
-    }
-    Instruct(APPLY2): {
-      value arg1 = sp[0];
-      value arg2 = sp[1];
-      sp -= 3;
-      sp[0] = arg1;
-      sp[1] = arg2;
-      sp[2] = (value)pc;
-      sp[3] = env;
-      sp[4] = Val_long(extra_args);
-      pc = Code_val(accu);
-      CHECK_PC(pc);
+	      env = accu;
+	      extra_args = 0;
+	      goto check_stacks;
+      }
+      Instruct(APPLY2): {
+	      value arg1 = sp[0];
+	      value arg2 = sp[1];
+	      sp -= 3;
+	      sp[0] = arg1;
+	      sp[1] = arg2;
+	      sp[2] = (value)pc;
+	      sp[3] = env;
+	      sp[4] = Val_long(extra_args);
+	      pc = Code_val(accu);
+	      CHECK_PC(pc);
 #ifdef DEBUG
-      func_stack_push(func_stack, pc);
+	   func_stack_push(global_func_stack, pc);
+		dump_func_stack(local_func_stack); 
+	ht_curr_inc_opcount(func_hash_table, global_func_stack, *pc); 
+	      printf("Are we heading in here?\n"); 
+	      array_alloc_op_counts(func_hash_table, local_func_stack); 
 #endif
-      env = accu;
-      extra_args = 1;
-      goto check_stacks;
-    }
-    Instruct(APPLY3): {
-      value arg1 = sp[0];
-      value arg2 = sp[1];
-      value arg3 = sp[2];
-      sp -= 3;
-      sp[0] = arg1;
-      sp[1] = arg2;
-      sp[2] = arg3;
-      sp[3] = (value)pc;
-      sp[4] = env;
-      sp[5] = Val_long(extra_args);
-      pc = Code_val(accu);
-      CHECK_PC(pc);
+	      env = accu;
+	      extra_args = 1;
+	      goto check_stacks;
+      }
+      Instruct(APPLY3): {
+	      value arg1 = sp[0];
+	      value arg2 = sp[1];
+	      value arg3 = sp[2];
+	      sp -= 3;
+	      sp[0] = arg1;
+	      sp[1] = arg2;
+	      sp[2] = arg3;
+	      sp[3] = (value)pc;
+	      sp[4] = env;
+	      sp[5] = Val_long(extra_args);
+	      pc = Code_val(accu);
+	      CHECK_PC(pc);
 #ifdef DEBUG
-      func_stack_push(func_stack, pc);
+             func_stack_push(global_func_stack, pc); 
+	     dump_func_stack(local_func_stack); 
+	   ht_curr_inc_opcount(func_hash_table, global_func_stack, *pc); 
+		printf("ARE WE HERE YET BOIIII\n"); 	
+	      array_alloc_op_counts(func_hash_table, local_func_stack); 
 #endif
-      env = accu;
-      extra_args = 2;
-      goto check_stacks;
-    }
+	      env = accu;
+	      extra_args = 2;
+	      goto check_stacks;
+      }
 
-    Instruct(APPTERM): {
-      int nargs = *pc++;
-      int slotsize = *pc;
-      value * newsp;
-      int i;
-      /* Slide the nargs bottom words of the current frame to the top
-         of the frame, and discard the remainder of the frame */
-      newsp = sp + slotsize - nargs;
-      for (i = nargs - 1; i >= 0; i--) newsp[i] = sp[i];
-      sp = newsp;
-      pc = Code_val(accu);
-      env = accu;
-      extra_args += nargs - 1;
-      goto check_stacks;
-    }
-    Instruct(APPTERM1): {
-      value arg1 = sp[0];
-      sp = sp + *pc - 1;
-      sp[0] = arg1;
-      pc = Code_val(accu);
-      env = accu;
-      goto check_stacks;
-    }
-    Instruct(APPTERM2): {
-      value arg1 = sp[0];
-      value arg2 = sp[1];
-      sp = sp + *pc - 2;
-      sp[0] = arg1;
-      sp[1] = arg2;
-      pc = Code_val(accu);
-      env = accu;
-      extra_args += 1;
-      goto check_stacks;
-    }
-    Instruct(APPTERM3): {
-      value arg1 = sp[0];
-      value arg2 = sp[1];
-      value arg3 = sp[2];
-      sp = sp + *pc - 3;
-      sp[0] = arg1;
-      sp[1] = arg2;
-      sp[2] = arg3;
-      pc = Code_val(accu);
-      env = accu;
-      extra_args += 2;
-      goto check_stacks;
-    }
+      Instruct(APPTERM): {
+	      int nargs = *pc++;
+	      int slotsize = *pc;
+	      value * newsp;
+	      int i;
+	      /* Slide the nargs bottom words of the current frame to the top
+		 of the frame, and discard the remainder of the frame */
+	      newsp = sp + slotsize - nargs;
+	      for (i = nargs - 1; i >= 0; i--) newsp[i] = sp[i];
+	      sp = newsp;
+	      pc = Code_val(accu);
+	      env = accu;
+	      extra_args += nargs - 1;
+	      goto check_stacks;
+      }
+      Instruct(APPTERM1): {
+	      value arg1 = sp[0];
+	      sp = sp + *pc - 1;
+	      sp[0] = arg1;
+	      pc = Code_val(accu);
+	      env = accu;
+	      goto check_stacks;
+      }
+      Instruct(APPTERM2): {
+	      value arg1 = sp[0];
+	      value arg2 = sp[1];
+	      sp = sp + *pc - 2;
+	      sp[0] = arg1;
+	      sp[1] = arg2;
+	      pc = Code_val(accu);
+	      env = accu;
+	      extra_args += 1;
+	      goto check_stacks;
+      }
+      Instruct(APPTERM3): {
+	      value arg1 = sp[0];
+	      value arg2 = sp[1];
+	      value arg3 = sp[2];
+	      sp = sp + *pc - 3;
+	      sp[0] = arg1;
+	      sp[1] = arg2;
+	      sp[2] = arg3;
+	      pc = Code_val(accu);
+	      env = accu;
+	      extra_args += 2;
+	      goto check_stacks;
+      }
 
-    Instruct(RETURN): {
-      sp += *pc++;
-      if (extra_args > 0) {
-        extra_args--;
-        pc = Code_val(accu);
-        env = accu;
+      Instruct(RETURN): {
+	      sp += *pc++;
+	      if (extra_args > 0) {
+		      extra_args--;
+		      pc = Code_val(accu);
+		      env = accu;
 #ifdef DEBUG 
-do{	
-	printf("Key: %p\n", (void *)peek(func_stack));
-	ht_set(func_hash_table, (const char *)peek(func_stack), (void *)1); 	
-
-	for(int i = 0; i < func_hash_table->capacity; i++) {
-		      if(func_hash_table->entries[i].key == (void *)peek(func_stack)) {
-			      func_hash_table->entries[i].value += curr_op_counts;	 
-//			      ht_set(func_hash_table, (const char *)peek(func_stack), (void *)curr_op_counts); 
-//			      printf("Key in if statement: %p\n", (void *)peek(func_stack)); 
-			      func_stack_pop(func_stack); 
-			      curr_op_counts = 0;
-			      break;  
-			}
-		}
-	break; 
-} while(true); 
-		
-/*
-	     ht_set(func_hash_table, (const char *)peek(func_stack), (void *)curr_op_counts);
-	     printf("Key %p:\n", (void*)peek(func_stack));
-	     func_stack_pop(func_stack);
-	     curr_op_counts = 0;*/
+	     // curr_op_counts = ht_curr_inc_opcount(func_hash_table, func_stack, *pc); 	
+	     ht_set(func_hash_table, (const char *)peek(global_func_stack), (void *)curr_op_counts);
+	     printf("Key %p:\n", (void*)peek(global_func_stack));
+	     func_stack_pop(global_func_stack); 
 #endif
 	Next;
       } else {
 #ifdef DEBUG
-do{	
-//	printf("Key: %p\n", (void *)peek(func_stack));
-	ht_set(func_hash_table, (const char *)peek(func_stack), (void *)1); 	
 
-	for(int i = 0; i < func_hash_table->capacity; i++) {
-		      if(func_hash_table->entries[i].key == (void *)peek(func_stack)) { 
-			      func_hash_table->entries[i].value += curr_op_counts;	
-			      //ht_set(func_hash_table, (const char *)peek(func_stack), (void *)curr_op_counts); 
-//			      printf("Key in if statement: %p\n", (void *)peek(func_stack)); 
-			      func_stack_pop(func_stack); 
-			      curr_op_counts = 0;
-			      break;  
-			}
-		}
-	break;	
-} while(true); 
-		
-
-
-
-/*    ht_set(func_hash_table, (const char*)peek(func_stack), (void *)curr_op_counts);  
-    	printf("Key %p:\n", (void*)peek(func_stack));
-    func_stack_pop(func_stack);
-    curr_op_counts = 0; */
+    ht_set(func_hash_table, (const char*)peek(global_func_stack), (void *)curr_op_counts);  
+    	printf("Key %p:\n", (void*)peek(global_func_stack));
+    func_stack_pop(global_func_stack);
 #endif
         goto do_return;
       }
@@ -1779,9 +1816,9 @@ do{
       printf("Total op_count = %lu\n", total_op_count);
       
       // Counts Op counts for certain function at that time. 	
-      /*for (int i = 0; i < FIRST_UNIMPLEMENTED_OP; i++) {
+      for (int i = 0; i < FIRST_UNIMPLEMENTED_OP; i++) {
           printf("Op_counts[%d] = %lu\n", i, op_counts[i]);
-      }*/
+      }
 	
 	    counter = 0; 
 	    // Prints out hash table 
@@ -1798,10 +1835,12 @@ do{
 
 	printf("Unique Functions: %d\n", (int)ht_length(func_hash_table));
 	printf("Total Number of Counts from Hash table: %ld\n", counter); 
-    dump_func_stack(func_stack); 
+    dump_func_stack(global_func_stack); 
+    dump_func_stack(local_func_stack);
 //      dump_func_stack_meta(func_stack);
 	
-      destroy_func_stack(func_stack);
+      destroy_func_stack(global_func_stack);
+      destroy_func_stack(local_func_stack);	
       ht_destroy(func_hash_table); 
 //        get_nr_items(func_stack);
 //        get_max_items(func_stack); 
