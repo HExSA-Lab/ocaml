@@ -838,8 +838,8 @@ value caml_interprete(code_t prog, asize_t prog_size)
       op_counts[*pc]++;  
       total_op_count++;
       curr_op_counts++;  
-     func_stack_push(local_func_stack, pc); 
-     ht_curr_inc_opcount(func_hash_table, local_func_stack, *pc); 	
+     func_stack_push(global_func_stack, pc);
+     ht_curr_inc_opcount(func_hash_table, global_func_stack, *pc); 	
   } else {
       fprintf(stderr, "Trying to inc opcode %u\n", *pc);
   }
@@ -870,8 +870,8 @@ value caml_interprete(code_t prog, asize_t prog_size)
        op_counts[*pc]++;  
         total_op_count++;
         curr_op_counts++;
-	func_stack_push(local_func_stack, pc); 
-	ht_curr_inc_opcount(func_hash_table, local_func_stack, *pc); 	
+	func_stack_push(global_func_stack, pc); 
+	ht_curr_inc_opcount(func_hash_table, global_func_stack, *pc); 	
     } else {
         fprintf(stderr, "ERROR: Trying to inc opcode %u but it's invalid\n", *pc);
     }
