@@ -591,7 +591,7 @@ size_t ht_length(ht* table) {
     return table->length; 
 }
 
-
+/*
 static void ht_curr_inc_opcount(ht* table, function_stack_t * func_stack, opcode_t opcode) { 
 	
 	unsigned long * temp_curr_op_counts = NULL;
@@ -629,7 +629,7 @@ static void array_alloc_op_counts(ht * table, function_stack_t * func_stack) {
 		
 	ht_set(table, (const char *)curr_func, curr_opcount_array); 
 
-}
+}*/
 // Hash talbe iterator: create with ht_iterator, iterate with ht_next 
 //
 typedef struct { 
@@ -681,7 +681,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
   unsigned long total_op_count;
   unsigned long * curr_op_counts;
   unsigned long counter; 
-  function_stack_t * global_func_stack;
+  //function_stack_t * global_func_stack;
   function_stack_t * local_func_stack; 
   ht * func_hash_table;
   //hti it; 
@@ -815,11 +815,11 @@ value caml_interprete(code_t prog, asize_t prog_size)
   memset(curr_op_counts, 0, FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long)); 
 */
  // function_stack_t * func_stack;
-  global_func_stack = create_func_stack(1024);
+ /* global_func_stack = create_func_stack(1024);
   if (!global_func_stack) {
 	  fprintf(stderr, "Could not allocate global func stack\n");
 	  exit(1);
-  }
+  }*/
 
   local_func_stack = create_func_stack(1024); 
   if(!local_func_stack) { 
@@ -838,8 +838,8 @@ value caml_interprete(code_t prog, asize_t prog_size)
       op_counts[*pc]++;  
       total_op_count++;
       curr_op_counts++;  
-     func_stack_push(global_func_stack, pc);
-     ht_curr_inc_opcount(func_hash_table, global_func_stack, *pc); 	
+//     func_stack_push(global_func_stack, pc);
+//     ht_curr_inc_opcount(func_hash_table, global_func_stack, *pc); 	
   } else {
       fprintf(stderr, "Trying to inc opcode %u\n", *pc);
   }
@@ -870,8 +870,8 @@ value caml_interprete(code_t prog, asize_t prog_size)
        op_counts[*pc]++;  
         total_op_count++;
         curr_op_counts++;
-	func_stack_push(global_func_stack, pc); 
-	ht_curr_inc_opcount(func_hash_table, global_func_stack, *pc); 	
+	//func_stack_push(global_func_stack, pc); 
+	//ht_curr_inc_opcount(func_hash_table, global_func_stack, *pc); 	
     } else {
         fprintf(stderr, "ERROR: Trying to inc opcode %u but it's invalid\n", *pc);
     }
@@ -978,11 +978,10 @@ value caml_interprete(code_t prog, asize_t prog_size)
 	      env = accu;
 	      CHECK_PC(pc);
 #ifdef DEBUG
-	      func_stack_push(global_func_stack, pc);
-		dump_func_stack(local_func_stack); 			
-	     ht_curr_inc_opcount(func_hash_table, global_func_stack, *pc); 
-	      printf("Are we heading in here?\n"); 
-	      array_alloc_op_counts(func_hash_table, local_func_stack); 	
+	      func_stack_push(local_func_stack, pc);
+	    //  array_alloc_op_counts(func_hash_table, local_func_stack); 
+	      dump_func_stack(local_func_stack); 			
+	  //    ht_curr_inc_opcount(func_hash_table, local_func_stack, *pc); 	
 #endif
 	      goto check_stacks;
       }
@@ -996,11 +995,11 @@ value caml_interprete(code_t prog, asize_t prog_size)
 	      pc = Code_val(accu);
 	      CHECK_PC(pc);
 #ifdef DEBUG
-	      func_stack_push(global_func_stack, pc);
-		dump_func_stack(local_func_stack); 
-	ht_curr_inc_opcount(func_hash_table, global_func_stack, *pc); 
-	      printf("Are we heading in here?\n"); 
-	      array_alloc_op_counts(func_hash_table, local_func_stack); 
+	      func_stack_push(local_func_stack, pc);
+	//	array_alloc_op_counts(func_hash_table, local_func_stack); 	
+      	      dump_func_stack(local_func_stack); 
+	//ht_curr_inc_opcount(func_hash_table, local_func_stack, *pc); 
+	     
 #endif
 	      env = accu;
 	      extra_args = 0;
@@ -1018,11 +1017,10 @@ value caml_interprete(code_t prog, asize_t prog_size)
 	      pc = Code_val(accu);
 	      CHECK_PC(pc);
 #ifdef DEBUG
-	   func_stack_push(global_func_stack, pc);
+	   func_stack_push(local_func_stack, pc);
+	   //array_alloc_op_counts(func_hash_table, local_func_stack); 
 		dump_func_stack(local_func_stack); 
-	ht_curr_inc_opcount(func_hash_table, global_func_stack, *pc); 
-	      printf("Are we heading in here?\n"); 
-	      array_alloc_op_counts(func_hash_table, local_func_stack); 
+	//ht_curr_inc_opcount(func_hash_table, local_func_stack, *pc); 
 #endif
 	      env = accu;
 	      extra_args = 1;
@@ -1042,11 +1040,11 @@ value caml_interprete(code_t prog, asize_t prog_size)
 	      pc = Code_val(accu);
 	      CHECK_PC(pc);
 #ifdef DEBUG
-             func_stack_push(global_func_stack, pc); 
+             func_stack_push(local_func_stack, pc); 
+	    // array_alloc_op_counts(func_hash_table, local_func_stack);
 	     dump_func_stack(local_func_stack); 
-	   ht_curr_inc_opcount(func_hash_table, global_func_stack, *pc); 
-		printf("ARE WE HERE YET BOIIII\n"); 	
-	      array_alloc_op_counts(func_hash_table, local_func_stack); 
+	  // ht_curr_inc_opcount(func_hash_table, local_func_stack, *pc); 
+		
 #endif
 	      env = accu;
 	      extra_args = 2;
@@ -1109,17 +1107,17 @@ value caml_interprete(code_t prog, asize_t prog_size)
 		      env = accu;
 #ifdef DEBUG 
 	     // curr_op_counts = ht_curr_inc_opcount(func_hash_table, func_stack, *pc); 	
-	     ht_set(func_hash_table, (const char *)peek(global_func_stack), (void *)curr_op_counts);
-	     printf("Key %p:\n", (void*)peek(global_func_stack));
-	     func_stack_pop(global_func_stack); 
+	     ht_set(func_hash_table, (const char *)peek(local_func_stack), (void *)total_op_count);
+	     printf("Key %p:\n", (void*)peek(local_func_stack));
+	     func_stack_pop(local_func_stack); 
 #endif
 	Next;
       } else {
 #ifdef DEBUG
 
-    ht_set(func_hash_table, (const char*)peek(global_func_stack), (void *)curr_op_counts);  
-    	printf("Key %p:\n", (void*)peek(global_func_stack));
-    func_stack_pop(global_func_stack);
+    ht_set(func_hash_table, (const char*)peek(local_func_stack), (void *)total_op_count);  
+    	printf("Key %p:\n", (void*)peek(local_func_stack));
+    func_stack_pop(local_func_stack);
 #endif
         goto do_return;
       }
@@ -1835,11 +1833,11 @@ value caml_interprete(code_t prog, asize_t prog_size)
 
 	printf("Unique Functions: %d\n", (int)ht_length(func_hash_table));
 	printf("Total Number of Counts from Hash table: %ld\n", counter); 
-    dump_func_stack(global_func_stack); 
+ //   dump_func_stack(global_func_stack); 
     dump_func_stack(local_func_stack);
 //      dump_func_stack_meta(func_stack);
 	
-      destroy_func_stack(global_func_stack);
+//      destroy_func_stack(global_func_stack);
       destroy_func_stack(local_func_stack);	
       ht_destroy(func_hash_table); 
 //        get_nr_items(func_stack);
