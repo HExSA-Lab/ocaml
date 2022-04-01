@@ -62,6 +62,7 @@
 sp is a local copy of the global variable Caml_state->extern_sp. */
 
 /* Instruction decoding */
+#define RUNTIME_INFO(fmt, args...) printf("MD RUNTIME INFO: " fmt " at %s\n", ##args, __func__)
 
 #define RUNTIME_ERR(fmt, args...) fprintf(stderr, "MD RUNTIME ERROR: " fmt " at %s\n", ##args, __func__)
 #define RUNTIME_WARN(fmt, args...) printf("MD RUNTIME WARNING: " fmt " at %s\n", ##args, __func__)
@@ -391,7 +392,8 @@ static code_t func_stack_pop(function_stack_t * stack) {
 // Hash table entry
 typedef struct {
     const char* key; 
-    void *value; // value is the number of op codes. 
+//    unsigned long *value[]; // value is the number of op codes. 
+    void *value;	
 } ht_entry; 
 
 
@@ -505,7 +507,7 @@ static const char* ht_set_entry(ht_entry* entries, size_t capacity, const char* 
         if (strcmp(key, entries[index].key) == 0) {
 #endif
 	if ((void*)key == (void*)entries[index].key) {
-		entries[index].value = value; 
+		entries[index].value= value; 
 		return entries[index].key; 
 	}
 
@@ -591,7 +593,7 @@ size_t ht_length(ht* table) {
     return table->length; 
 }
 
-/*
+
 static void ht_curr_inc_opcount(ht* table, function_stack_t * func_stack, opcode_t opcode) { 
 	
 	unsigned long * temp_curr_op_counts = NULL;
@@ -605,18 +607,26 @@ static void ht_curr_inc_opcount(ht* table, function_stack_t * func_stack, opcode
 
 	assert(temp_curr_op_counts != NULL);
 	
-	if (opcode < FIRST_UNIMPLEMENTED_OP) { 
-		temp_curr_op_counts[opcode]++; 
+	if (opcode < FIRST_UNIMPLEMENTED_OP) {
+ 		temp_curr_op_counts[opcode]++;
 	} else { 
 		RUNTIME_ERR("Trying to increment invalid opcode %u", opcode);
 	}
-	
+
+		
 }
 
 static void array_alloc_op_counts(ht * table, function_stack_t * func_stack) { 
 	
-	unsigned long * curr_opcount_array = malloc(FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long)); 
-	code_t curr_func = peek(func_stack); 
+	unsigned long * curr_opcount_array; 
+	code_t curr_func = peek(func_stack); 	
+	
+	if(ht_get(table, (const char *)curr_func)) { 
+		return;  
+	}
+
+	curr_opcount_array = malloc(FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long)); 
+	
 	
 	assert(curr_func != NULL); 
 
@@ -629,7 +639,7 @@ static void array_alloc_op_counts(ht * table, function_stack_t * func_stack) {
 		
 	ht_set(table, (const char *)curr_func, curr_opcount_array); 
 
-}*/
+}
 // Hash talbe iterator: create with ht_iterator, iterate with ht_next 
 //
 typedef struct { 
@@ -679,12 +689,13 @@ value caml_interprete(code_t prog, asize_t prog_size)
 #ifdef DEBUG 
   unsigned long * op_counts;  
   unsigned long total_op_count;
-  unsigned long * curr_op_counts;
-  unsigned long counter; 
+  //unsigned long * curr_op_counts;
+  //unsigned long counter; 
   //function_stack_t * global_func_stack;
   function_stack_t * local_func_stack; 
   ht * func_hash_table;
-  //hti it; 
+  //hti it;
+  unsigned long * op_arr; 
 #endif 
 
 #ifdef PC_REG
@@ -791,10 +802,10 @@ value caml_interprete(code_t prog, asize_t prog_size)
 
 #ifdef DEBUG  
   op_counts = NULL;
-  curr_op_counts = 0; 
- // total_op_count = 0; 
+ // curr_op_counts = 0; 
+  total_op_count = 0; 
 
- /* op_counts = malloc(FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long));
+  op_counts = malloc(FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long));
 
   if(!op_counts) { 
 	fprintf(stderr, "Could not allocate op count array\n"); 
@@ -804,7 +815,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
   memset(op_counts, 0, FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long));
 
 
-  curr_op_counts = malloc(FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long)); 
+ /* curr_op_counts = malloc(FIRST_UNIMPLEMENTED_OP * sizeof(unsigned long)); 
 
   if(!curr_op_counts) { 
 
@@ -837,7 +848,11 @@ value caml_interprete(code_t prog, asize_t prog_size)
   if (*pc < FIRST_UNIMPLEMENTED_OP) {
       op_counts[*pc]++;  
       total_op_count++;
-      curr_op_counts++;  
+      //curr_op_counts++; 
+	
+       if(!isEmpty(local_func_stack)) { 
+	 ht_curr_inc_opcount(func_hash_table, local_func_stack, *pc); 
+	} 
 //     func_stack_push(global_func_stack, pc);
 //     ht_curr_inc_opcount(func_hash_table, global_func_stack, *pc); 	
   } else {
@@ -869,9 +884,12 @@ value caml_interprete(code_t prog, asize_t prog_size)
     if (*pc < FIRST_UNIMPLEMENTED_OP) {
        op_counts[*pc]++;  
         total_op_count++;
-        curr_op_counts++;
+  //      curr_op_counts++;
 	//func_stack_push(global_func_stack, pc); 
 	//ht_curr_inc_opcount(func_hash_table, global_func_stack, *pc); 	
+	if(!isEmpty(local_func_stack)) { 
+		ht_curr_inc_opcount(func_hash_table, local_func_stack, *pc); 
+	}
     } else {
         fprintf(stderr, "ERROR: Trying to inc opcode %u but it's invalid\n", *pc);
     }
@@ -979,9 +997,10 @@ value caml_interprete(code_t prog, asize_t prog_size)
 	      CHECK_PC(pc);
 #ifdef DEBUG
 	      func_stack_push(local_func_stack, pc);
-	    //  array_alloc_op_counts(func_hash_table, local_func_stack); 
-	      dump_func_stack(local_func_stack); 			
-	  //    ht_curr_inc_opcount(func_hash_table, local_func_stack, *pc); 	
+	      array_alloc_op_counts(func_hash_table, local_func_stack); 		
+	      //dump_func_stack(local_func_stack); 			
+	      //ht_curr_inc_opcount(func_hash_table, local_func_stack, *pc); 	
+	      		
 #endif
 	      goto check_stacks;
       }
@@ -996,9 +1015,9 @@ value caml_interprete(code_t prog, asize_t prog_size)
 	      CHECK_PC(pc);
 #ifdef DEBUG
 	      func_stack_push(local_func_stack, pc);
-	//	array_alloc_op_counts(func_hash_table, local_func_stack); 	
-      	      dump_func_stack(local_func_stack); 
-	//ht_curr_inc_opcount(func_hash_table, local_func_stack, *pc); 
+	      array_alloc_op_counts(func_hash_table, local_func_stack); 	
+      	      //dump_func_stack(local_func_stack); 
+	      //ht_curr_inc_opcount(func_hash_table, local_func_stack, *pc); 
 	     
 #endif
 	      env = accu;
@@ -1018,9 +1037,9 @@ value caml_interprete(code_t prog, asize_t prog_size)
 	      CHECK_PC(pc);
 #ifdef DEBUG
 	   func_stack_push(local_func_stack, pc);
-	   //array_alloc_op_counts(func_hash_table, local_func_stack); 
-		dump_func_stack(local_func_stack); 
-	//ht_curr_inc_opcount(func_hash_table, local_func_stack, *pc); 
+	   array_alloc_op_counts(func_hash_table, local_func_stack); 
+	  // dump_func_stack(local_func_stack); 
+	  // ht_curr_inc_opcount(func_hash_table, local_func_stack, *pc); 
 #endif
 	      env = accu;
 	      extra_args = 1;
@@ -1041,9 +1060,9 @@ value caml_interprete(code_t prog, asize_t prog_size)
 	      CHECK_PC(pc);
 #ifdef DEBUG
              func_stack_push(local_func_stack, pc); 
-	    // array_alloc_op_counts(func_hash_table, local_func_stack);
-	     dump_func_stack(local_func_stack); 
-	  // ht_curr_inc_opcount(func_hash_table, local_func_stack, *pc); 
+	     array_alloc_op_counts(func_hash_table, local_func_stack);
+	    // dump_func_stack(local_func_stack); 
+	    // ht_curr_inc_opcount(func_hash_table, local_func_stack, *pc); 
 		
 #endif
 	      env = accu;
@@ -1107,16 +1126,14 @@ value caml_interprete(code_t prog, asize_t prog_size)
 		      env = accu;
 #ifdef DEBUG 
 	     // curr_op_counts = ht_curr_inc_opcount(func_hash_table, func_stack, *pc); 	
-	     ht_set(func_hash_table, (const char *)peek(local_func_stack), (void *)total_op_count);
-	     printf("Key %p:\n", (void*)peek(local_func_stack));
+	    // Just prints out the key
+	    // printf("Key %p:\n", (void*)peek(local_func_stack));
 	     func_stack_pop(local_func_stack); 
 #endif
 	Next;
       } else {
 #ifdef DEBUG
-
-    ht_set(func_hash_table, (const char*)peek(local_func_stack), (void *)total_op_count);  
-    	printf("Key %p:\n", (void*)peek(local_func_stack));
+    //	printf("Key %p:\n", (void*)peek(local_func_stack));
     func_stack_pop(local_func_stack);
 #endif
         goto do_return;
@@ -1812,27 +1829,32 @@ value caml_interprete(code_t prog, asize_t prog_size)
       // Prints out the total opcounts with respective functions
       	    
       printf("Total op_count = %lu\n", total_op_count);
-      
+
+      /*	      
       // Counts Op counts for certain function at that time. 	
       for (int i = 0; i < FIRST_UNIMPLEMENTED_OP; i++) {
           printf("Op_counts[%d] = %lu\n", i, op_counts[i]);
-      }
+      }*/ 
 	
-	    counter = 0; 
-	    // Prints out hash table 
-	    for(int i = 0; i < func_hash_table->capacity; i++) {;
+	    //counter = 0; 
+	    // Prints out hash table
+	    //void * size_of_func_array = sizeof(func_hash_table->entries[0].value)/sizeof(* func_hash_table->entries[0].value[0]); 	 
+	    for(int i = 0; i < func_hash_table->capacity; i++) {
 		    if(func_hash_table->entries[i].key != NULL) { 
-			    printf("index %d: key %p, value %ld\n",
-					    i, func_hash_table->entries[i].key, (long)func_hash_table->entries[i].value);
-		    	    counter += (long)func_hash_table->entries[i].value; 
-			}
+			RUNTIME_INFO("Array for func %p", func_hash_table->entries[i].key);
+			op_arr = (unsigned long*)func_hash_table->entries[i].value;
+
+			for(int j = 0; j < FIRST_UNIMPLEMENTED_OP; j++) 
+				RUNTIME_INFO("Opcode: %x Count %lu", j, op_arr[j]);
+		    	     // counter += (long)func_hash_table->entries[i].value; 
+		    }
 		    else {
-			    printf("index %d: empty\n", i); 
+			    printf("index %d in hashtab: empty\n", i); 
 		    }		
 	    }
 
 	printf("Unique Functions: %d\n", (int)ht_length(func_hash_table));
-	printf("Total Number of Counts from Hash table: %ld\n", counter); 
+	//printf("Total Number of Counts from Hash table: %ld\n", counter); 
  //   dump_func_stack(global_func_stack); 
     dump_func_stack(local_func_stack);
 //      dump_func_stack_meta(func_stack);
