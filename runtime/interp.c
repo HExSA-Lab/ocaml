@@ -1845,7 +1845,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
 			op_arr = (unsigned long*)func_hash_table->entries[i].value;
 
 			for(int j = 0; j < FIRST_UNIMPLEMENTED_OP; j++) 
-				RUNTIME_INFO("Opcode: %x Count %lu", j, op_arr[j]);
+				RUNTIME_INFO("Opcode: %d Count %lu", j, op_arr[j]);
 		    	     // counter += (long)func_hash_table->entries[i].value; 
 		    }
 		    else {
