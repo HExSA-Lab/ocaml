@@ -17,5 +17,5 @@ hello: hello.ml
 	$(OCAMLC) $(DEBUG_OFF_FLAG) -o hello hello.ml
 
 clean: 
-	$(RM) quicksort hello *.cmi *.cmo *.~
+	$(RM) quicksort hello *.cmi *.cmo *.cmx *.s *.o *.~
 
