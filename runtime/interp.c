@@ -69,6 +69,10 @@ sp is a local copy of the global variable Caml_state->extern_sp. */
 
 #define CHECK_PC(pc) if ((pc) == NULL) {RUNTIME_WARN("PC FOR THIS STACK IS NULL (pc=%p)", (pc));}
 
+#define LABELME(instr) \
+asm volatile (".global __stub_" #instr "\n" \
+        "__stub" #instr ":\n");
+
 #ifdef THREADED_CODE
 #  define Instruct(name) lbl_##name
 #  if defined(ARCH_SIXTYFOUR) && !defined(ARCH_CODE32)
@@ -938,9 +942,15 @@ value caml_interprete(code_t prog, asize_t prog_size)
     Instruct(PUSHACC7):
       *--sp = accu; accu = sp[7]; Next;
 
-    Instruct(PUSHACC): *--sp = accu;
+    Instruct(PUSHACC): 
+        LABELME(PUSHACC);
+        *--sp = accu;
       /* Fallthrough */
     Instruct(ACC):
+
+        LABELME(ACC);
+
+
       accu = sp[*pc++];
       Next;
 
