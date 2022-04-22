@@ -962,7 +962,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
         *--sp = accu;
         /* Fallthrough */
         Instruct(ACC):
-        //    LABELME(ACC);
+            LABELME(ACC);
         accu = sp[*pc++];
         Next;
 
@@ -1009,7 +1009,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
       *--sp = accu;
       /* Fallthrough */
     Instruct(ENVACC):
-    //    LABELME(ENVACC);
+        LABELME(ENVACC);
       accu = Field(env, *pc++);
       Next;
 
@@ -1041,8 +1041,9 @@ value caml_interprete(code_t prog, asize_t prog_size)
 	      goto check_stacks;
       }
       Instruct(APPLY1): {
-          // LABELME(APPLY1);
-	      value arg1 = sp[0];
+	      value arg1;
+          LABELME(APPLY1); 
+          arg1 = sp[0];
 	      sp -= 3;
 	      sp[0] = arg1;
 	      sp[1] = (value)pc;
@@ -1062,9 +1063,11 @@ value caml_interprete(code_t prog, asize_t prog_size)
 	      goto check_stacks;
       }
       Instruct(APPLY2): {
-          //LABELME(APPLY2);
-	      value arg1 = sp[0];
-	      value arg2 = sp[1];
+          value arg1;
+          value arg2;
+          LABELME(APPLY2);
+	      arg1 = sp[0];
+	      arg2 = sp[1];
 	      sp -= 3;
 	      sp[0] = arg1;
 	      sp[1] = arg2;
@@ -1084,10 +1087,13 @@ value caml_interprete(code_t prog, asize_t prog_size)
 	      goto check_stacks;
       }
       Instruct(APPLY3): {
-          //LABELME(APPLY3);
-	      value arg1 = sp[0];
-	      value arg2 = sp[1];
-	      value arg3 = sp[2];
+          value arg1;
+          value arg2;
+          value arg3;
+          LABELME(APPLY3);
+	      arg1 = sp[0];
+	      arg2 = sp[1];
+	      arg3 = sp[2];
 	      sp -= 3;
 	      sp[0] = arg1;
 	      sp[1] = arg2;
@@ -1110,11 +1116,13 @@ value caml_interprete(code_t prog, asize_t prog_size)
       }
 
       Instruct(APPTERM): {
-         // LABELME(APPTERM);
-	      int nargs = *pc++;
-	      int slotsize = *pc;
-	      value * newsp;
-	      int i;
+          int nargs; 
+          int slotsize;
+          value * newsp; 
+          int i; 
+          LABELME(APPTERM);
+	      nargs = *pc++;
+	      slotsize = *pc;
 	      /* Slide the nargs bottom words of the current frame to the top
 		 of the frame, and discard the remainder of the frame */
 	      newsp = sp + slotsize - nargs;
@@ -1126,8 +1134,9 @@ value caml_interprete(code_t prog, asize_t prog_size)
 	      goto check_stacks;
       }
       Instruct(APPTERM1): {
-          //LABELME(APPTERM1);
-	      value arg1 = sp[0];
+          value arg1; 
+          LABELME(APPTERM1);
+	      arg1 = sp[0];
 	      sp = sp + *pc - 1;
 	      sp[0] = arg1;
 	      pc = Code_val(accu);
@@ -1135,9 +1144,11 @@ value caml_interprete(code_t prog, asize_t prog_size)
 	      goto check_stacks;
       }
       Instruct(APPTERM2): {
-          //LABELME(APPTERM2);
-	      value arg1 = sp[0];
-	      value arg2 = sp[1];
+          value arg1; 
+          value arg2;
+          LABELME(APPTERM2);
+	      arg1 = sp[0];
+	      arg2 = sp[1];
 	      sp = sp + *pc - 2;
 	      sp[0] = arg1;
 	      sp[1] = arg2;
@@ -1147,10 +1158,13 @@ value caml_interprete(code_t prog, asize_t prog_size)
 	      goto check_stacks;
       }
       Instruct(APPTERM3): {
-          //LABELME(APPTERM3);
-	      value arg1 = sp[0];
-	      value arg2 = sp[1];
-	      value arg3 = sp[2];
+          value arg1;
+          value arg2;
+          value arg3;
+          LABELME(APPTERM3);
+	      arg1 = sp[0];
+	      arg2 = sp[1];
+	      arg3 = sp[2];
 	      sp = sp + *pc - 3;
 	      sp[0] = arg1;
 	      sp[1] = arg2;
@@ -1216,9 +1230,10 @@ value caml_interprete(code_t prog, asize_t prog_size)
       Next;
 
     Instruct(RESTART): {
-       // LABELME(RESTART);
-      int num_args = Wosize_val(env) - 3;
+      int num_args; 
       int i;
+      LABELME(RESTART);
+      num_args = Wosize_val(env) - 3;
       sp -= num_args;
       for (i = 0; i < num_args; i++) sp[i] = Field(env, i + 3);
       env = Field(env, 2);
@@ -1227,8 +1242,9 @@ value caml_interprete(code_t prog, asize_t prog_size)
     }
 
     Instruct(GRAB): {
-       // LABELME(GRAB);
-      int required = *pc++;
+      int required;
+      LABELME(GRAB);
+      required = *pc++;
       if (extra_args >= required) {
         extra_args -= required;
         Next;
@@ -1246,9 +1262,10 @@ value caml_interprete(code_t prog, asize_t prog_size)
     }
 
     Instruct(CLOSURE): {
-       // LABELME(CLOSURE);
-      int nvars = *pc++;
+      int nvars; 
       int i;
+      LABELME(CLOSURE);
+      nvars = *pc++;
       if (nvars > 0) *--sp = accu;
       if (nvars <= Max_young_wosize - 2) {
         /* nvars + 2 <= Max_young_wosize, can allocate in minor heap */
@@ -1271,13 +1288,17 @@ value caml_interprete(code_t prog, asize_t prog_size)
     }
 
     Instruct(CLOSUREREC): {
-      //  LABELME(CLOSUREREC);
-      int nfuncs = *pc++;
-      int nvars = *pc++;
-      mlsize_t envofs = nfuncs * 3 - 1;
-      mlsize_t blksize = envofs + nvars;
+      int nfuncs;
+      int nvars;
+      mlsize_t envofs;
+      mlsize_t blksize;
       int i;
-      value * p;
+      value * p; 
+      LABELME(CLOSUREREC);
+      nfuncs = *pc++;
+      nvars = *pc++;
+      envofs = nfuncs * 3 - 1;
+      blksize = envofs + nvars;
       if (nvars > 0) *--sp = accu;
       if (blksize <= Max_young_wosize) {
         Alloc_small(accu, blksize, Closure_tag, Enter_gc);
@@ -1313,26 +1334,26 @@ value caml_interprete(code_t prog, asize_t prog_size)
         LABELME(PUSHOFFSETCLOSURE);
       *--sp = accu; /* fallthrough */
     Instruct(OFFSETCLOSURE):
-      //  LABELME(OFFSETCLOSURE);
+        LABELME(OFFSETCLOSURE);
       accu = env + *pc++ * sizeof(value); Next;
 
     Instruct(PUSHOFFSETCLOSUREM3):
-      //  LABELME(PUSHOFFSETCLOSUREM3);
+        LABELME(PUSHOFFSETCLOSUREM3);
       *--sp = accu; /* fallthrough */
     Instruct(OFFSETCLOSUREM3):
-      //  LABELME(OFFSETCLOSUREM3);
+        LABELME(OFFSETCLOSUREM3);
       accu = env - 3 * sizeof(value); Next;
     Instruct(PUSHOFFSETCLOSURE0):
-      //  LABELME(PUSHOFFSETCLOSURE0);
+        LABELME(PUSHOFFSETCLOSURE0);
       *--sp = accu; /* fallthrough */
     Instruct(OFFSETCLOSURE0):
-      //  LABELME(OFFSETCLOSURE0);
+        LABELME(OFFSETCLOSURE0);
       accu = env; Next;
     Instruct(PUSHOFFSETCLOSURE3):
-      //  LABELME(PUSHOFFSETCLOSURE3);
+        LABELME(PUSHOFFSETCLOSURE3);
       *--sp = accu; /* fallthrough */
     Instruct(OFFSETCLOSURE3):
-      //  LABELME(OFFSETCLOSURE3);
+        LABELME(OFFSETCLOSURE3);
       accu = env + 3 * sizeof(value); Next;
 
 
@@ -1388,11 +1409,13 @@ value caml_interprete(code_t prog, asize_t prog_size)
       accu = Atom(*pc++); Next;
 
     Instruct(MAKEBLOCK): {
-     // LABELME(MAKEBLOCK); 
-      mlsize_t wosize = *pc++;
-      tag_t tag = *pc++;
-      mlsize_t i;
-      value block;
+      mlsize_t wosize; 
+      tag_t tag; 
+      mlsize_t i; 
+      value block; 
+      LABELME(MAKEBLOCK); 
+      wosize = *pc++;
+      tag = *pc++;
       if (wosize <= Max_young_wosize) {
         Alloc_small(block, wosize, tag, Enter_gc);
         Field(block, 0) = accu;
@@ -1406,18 +1429,20 @@ value caml_interprete(code_t prog, asize_t prog_size)
       Next;
     }
     Instruct(MAKEBLOCK1): {
-      //LABELME(MAKEBLOCK1); 
-      tag_t tag = *pc++;
+      tag_t tag; 
       value block;
+      LABELME(MAKEBLOCK1); 
+      tag = *pc++;
       Alloc_small(block, 1, tag, Enter_gc);
       Field(block, 0) = accu;
       accu = block;
       Next;
     }
     Instruct(MAKEBLOCK2): {
-       //LABELME(MAKEBLOCK2);
-      tag_t tag = *pc++;
+      tag_t tag;
       value block;
+      LABELME(MAKEBLOCK2);
+      tag = *pc++;
       Alloc_small(block, 2, tag, Enter_gc);
       Field(block, 0) = accu;
       Field(block, 1) = sp[0];
@@ -1426,9 +1451,10 @@ value caml_interprete(code_t prog, asize_t prog_size)
       Next;
     }
     Instruct(MAKEBLOCK3): {
-       // LABELME(MAKEBLOCK3);
-      tag_t tag = *pc++;
-      value block;
+      tag_t tag; 
+      value block; 
+      LABELME(MAKEBLOCK3);
+      tag = *pc++;
       Alloc_small(block, 3, tag, Enter_gc);
       Field(block, 0) = accu;
       Field(block, 1) = sp[0];
@@ -1438,10 +1464,11 @@ value caml_interprete(code_t prog, asize_t prog_size)
       Next;
     }
     Instruct(MAKEFLOATBLOCK): {
-      //  LABELME(MAKEFLOATBLOCK);
-      mlsize_t size = *pc++;
+      mlsize_t size; 
       mlsize_t i;
       value block;
+      LABELME(MAKEFLOATBLOCK);
+      size = *pc++;
       if (size <= Max_young_wosize / Double_wosize) {
         Alloc_small(block, size * Double_wosize, Double_array_tag, Enter_gc);
       } else {
@@ -1474,8 +1501,9 @@ value caml_interprete(code_t prog, asize_t prog_size)
         LABELME(GETFIELD);
       accu = Field(accu, *pc); pc++; Next;
     Instruct(GETFLOATFIELD): {
-      //  LABELME(GETFLOATFIELD);
-      double d = Double_flat_field(accu, *pc++);
+      double d;
+      LABELME(GETFLOATFIELD);
+      d = Double_flat_field(accu, *pc++);
       Alloc_small(accu, Double_wosize, Double_tag, Enter_gc);
       Store_double_val(accu, d);
       Next;
@@ -1521,8 +1549,9 @@ value caml_interprete(code_t prog, asize_t prog_size)
       /* Todo: when FLAT_FLOAT_ARRAY is false, this instruction should
          be split into VECTLENGTH and FLOATVECTLENGTH because we know
          statically which one it is. */
-      //  LABELME(VECTLENGTH);
-      mlsize_t size = Wosize_val(accu);
+      mlsize_t size; 
+      LABELME(VECTLENGTH);
+      size = Wosize_val(accu);
       if (Tag_val(accu) == Double_array_tag) size = size / Double_wosize;
       accu = Val_long(size);
       Next;
@@ -1566,8 +1595,9 @@ value caml_interprete(code_t prog, asize_t prog_size)
       if (accu == Val_false) pc += *pc; else pc++;
       Next;
     Instruct(SWITCH): {
-       // LABELME(SWITCH);
-      uint32_t sizes = *pc++;
+      uint32_t sizes; 
+      LABELME(SWITCH);
+      sizes = *pc++;
       if (Is_block(accu)) {
         intnat index = Tag_val(accu);
         CAMLassert ((uintnat) index < (sizes >> 16));
@@ -1740,8 +1770,9 @@ value caml_interprete(code_t prog, asize_t prog_size)
       pc++;
       Next;
     Instruct(C_CALLN): {
-      //  LABELME(C_CALLN);
-      int nargs = *pc++;
+      int nargs;
+      LABELME(C_CALLN);
+      nargs = *pc++;
       *--sp = accu;
       Setup_for_c_call;
       accu = Primitive(*pc)(sp + 2, nargs);
@@ -1793,15 +1824,17 @@ value caml_interprete(code_t prog, asize_t prog_size)
       accu = Val_long(Long_val(accu) * Long_val(*sp++)); Next;
 
     Instruct(DIVINT): { 
-        //LABELME(DIVINT);
-      intnat divisor = Long_val(*sp++);
+      intnat divisor;
+      LABELME(DIVINT);
+      divisor = Long_val(*sp++);
       if (divisor == 0) { Setup_for_c_call; caml_raise_zero_divide(); }
       accu = Val_long(Long_val(accu) / divisor);
       Next;
     }
     Instruct(MODINT): {
-      //  LABELME(MODINT);
-      intnat divisor = Long_val(*sp++);
+      intnat divisor;
+      LABELME(MODINT);
+      divisor = Long_val(*sp++);
       if (divisor == 0) { Setup_for_c_call; caml_raise_zero_divide(); }
       accu = Val_long(Long_val(accu) % divisor);
       Next;
@@ -1883,10 +1916,11 @@ value caml_interprete(code_t prog, asize_t prog_size)
 #define CAML_METHOD_CACHE
 #ifdef CAML_METHOD_CACHE
     Instruct(GETPUBMET): {
-       // LABELME(GETPUBMET);
+      value meths;
+      value ofs; 
+      LABELME(GETPUBMET);
       /* accu == object, pc[0] == tag, pc[1] == cache */
-      value meths = Field (accu, 0);
-      value ofs;
+      meths = Field (accu, 0);
 #ifdef CAML_TEST_CACHE
       static int calls = 0, hits = 0;
       if (calls >= 10000000) {
@@ -1927,10 +1961,15 @@ value caml_interprete(code_t prog, asize_t prog_size)
       /* Fallthrough */
 #endif
     Instruct(GETDYNMET): {
-       // LABELME(GETDYNMET);
+      value meths;
+      int li;
+      int hi; 
+      int mi;
+      LABELME(GETDYNMET);
       /* accu == tag, sp[0] == object, *pc == cache */
-      value meths = Field (sp[0], 0);
-      int li = 3, hi = Field(meths,0), mi;
+      meths = Field (sp[0], 0);
+      li = 3;
+      hi = Field(meths,0);
       while (li < hi) {
         mi = ((li+hi) >> 1) | 1;
         if (accu < Field(meths,mi)) hi = mi-2;
@@ -1999,6 +2038,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
       return accu;
 
     Instruct(EVENT):
+      LABELME(EVENT);
       if (--caml_event_count == 0) {
         Setup_for_debugger;
         caml_debugger(EVENT_COUNT, Val_unit);
@@ -2007,6 +2047,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
       Restart_curr_instr;
 
     Instruct(BREAK):
+        LABELME(BREAK);
       Setup_for_debugger;
       caml_debugger(BREAKPOINT, Val_unit);
       Restore_after_debugger;
@@ -2015,6 +2056,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
 /* Context switching */
 
     Instruct(RESUME):
+        LABELME(RESUME);
       resume_fn = sp[0];
       resume_arg = sp[1];
       sp -= 3;
@@ -2048,6 +2090,7 @@ do_resume: {
     }
 
     Instruct(RESUMETERM):
+        LABELME(RESUMETERM);
       resume_fn = sp[0];
       resume_arg = sp[1];
       sp = sp + *pc - 2;
@@ -2058,8 +2101,11 @@ do_resume: {
 
     Instruct(PERFORM): {
       value cont;
-      struct stack_info* old_stack = domain_state->current_stack;
-      struct stack_info* parent_stack = Stack_parent(old_stack);
+      struct stack_info* old_stack; 
+      struct stack_info* parent_stack;
+      LABELME(PERFORM);
+      old_stack = domain_state->current_stack;
+      parent_stack = Stack_parent(old_stack);
 
       if (parent_stack == NULL) {
         accu = Field(caml_global_data, UNHANDLED_EXN);
@@ -2094,11 +2140,17 @@ do_resume: {
     }
 
     Instruct(REPERFORMTERM): {
-      value eff = accu;
-      value cont = sp[0];
-      struct stack_info* cont_tail = Ptr_val(sp[1]);
-      struct stack_info* self = domain_state->current_stack;
-      struct stack_info* parent = Stack_parent(domain_state->current_stack);
+      value eff;
+      value cont;
+      struct stack_info* cont_tail; 
+      struct stack_info* self;
+      struct stack_info* parent;
+      LABELME(REPERFORMTERM);
+      eff = accu;
+      cont = sp[0];
+      cont_tail = Ptr_val(sp[1]);
+      self = domain_state->current_stack;
+      parent = Stack_parent(domain_state->current_stack);
 
       sp = sp + *pc - 2;
       sp[0] = Val_long(domain_state->trap_sp_off);
