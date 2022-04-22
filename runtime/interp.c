@@ -962,7 +962,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
         *--sp = accu;
         /* Fallthrough */
         Instruct(ACC):
-            LABELME(ACC);
+        //    LABELME(ACC);
         accu = sp[*pc++];
         Next;
 
@@ -1009,7 +1009,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
       *--sp = accu;
       /* Fallthrough */
     Instruct(ENVACC):
-        LABELME(ENVACC);
+    //    LABELME(ENVACC);
       accu = Field(env, *pc++);
       Next;
 
@@ -1313,26 +1313,26 @@ value caml_interprete(code_t prog, asize_t prog_size)
         LABELME(PUSHOFFSETCLOSURE);
       *--sp = accu; /* fallthrough */
     Instruct(OFFSETCLOSURE):
-        LABELME(OFFSETCLOSURE);
+      //  LABELME(OFFSETCLOSURE);
       accu = env + *pc++ * sizeof(value); Next;
 
     Instruct(PUSHOFFSETCLOSUREM3):
-        LABELME(PUSHOFFSETCLOSUREM3);
+      //  LABELME(PUSHOFFSETCLOSUREM3);
       *--sp = accu; /* fallthrough */
     Instruct(OFFSETCLOSUREM3):
-        LABELME(OFFSETCLOSUREM3);
+      //  LABELME(OFFSETCLOSUREM3);
       accu = env - 3 * sizeof(value); Next;
     Instruct(PUSHOFFSETCLOSURE0):
-        LABELME(PUSHOFFSETCLOSURE0);
+      //  LABELME(PUSHOFFSETCLOSURE0);
       *--sp = accu; /* fallthrough */
     Instruct(OFFSETCLOSURE0):
-        LABELME(OFFSETCLOSURE0);
+      //  LABELME(OFFSETCLOSURE0);
       accu = env; Next;
     Instruct(PUSHOFFSETCLOSURE3):
-        LABELME(PUSHOFFSETCLOSURE3);
+      //  LABELME(PUSHOFFSETCLOSURE3);
       *--sp = accu; /* fallthrough */
     Instruct(OFFSETCLOSURE3):
-        LABELME(OFFSETCLOSURE3);
+      //  LABELME(OFFSETCLOSURE3);
       accu = env + 3 * sizeof(value); Next;
 
 
@@ -1388,7 +1388,7 @@ value caml_interprete(code_t prog, asize_t prog_size)
       accu = Atom(*pc++); Next;
 
     Instruct(MAKEBLOCK): {
-      //LABELME(MAKEBLOCK); 
+     // LABELME(MAKEBLOCK); 
       mlsize_t wosize = *pc++;
       tag_t tag = *pc++;
       mlsize_t i;
