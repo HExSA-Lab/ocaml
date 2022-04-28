@@ -2,13 +2,20 @@
 #data = file.read()
 #print('data = ', data)
 
-with open('obj-dump-interp-corei9.txt', 'r') as file:
-    for l_no, line in enumerate(file):
+file = open('obj-dump-interp-corei9.txt', 'r')
+
+searchOpcode = ['__stubACC0', '__stubACC1', '__stubACC2', '__stubACC3', '__stubACC4', '__stubAPPTERM3']
+
+for line in file:
+    if any(word in line for word in searchOpcode):
+        print(line)
+#with open('obj-dump-interp-corei9.txt', 'r') as file:
+#    for l_no, line in enumerate(file):
         # search string
-        if 'ACC0' in line:
-            print('string found in a file')
-            print('Line number:', l_no)
-            print('Line:', line) 
+#        if searchOpcode in line:
+#            print('string found in a file')
+#            print('Line number:', l_no)
+#            print('Line:', line) 
             # This will not look at other lines 
             # break
         
