@@ -1,3 +1,7 @@
+#file =open('obj-dump-interp-corei9.txt', 'r')
+#data = file.read()
+#print('data = ', data)
+
 file = open('obj-dump-interp-corei9.txt', 'r')
 
 searchOpcode = ['<__stubACC0>:', '<__stubACC>:', '<__stubACC2>:', '<__stubACC3>:', '<__stubACC4>:', '<__stubACC5>:', '<__stubACC6>:', '<__stubACC7>:',
@@ -24,11 +28,23 @@ searchOpcode = ['<__stubACC0>:', '<__stubACC>:', '<__stubACC2>:', '<__stubACC3>:
         '<__stubRESUME>:', '<__stubRESUMETERM>:', '<__stubREPERFORMTERM>:', '<__stubFIRST_UNIMPLEMENTED_OP>:'] 
 
 for line in file:
-    if any(word in line for word in ['\r\n']):
-        break
-    if any(word in line for word in searchOpcode): 
-        instructions = line
+    if any(word in line for word in searchOpcode):
         print(line)
-        for instructions in file: 
-            print(instructions)
+#    if any(word in line for word in ['\n', '\r\n']):
+#        print(line)
+
+#with open('obj-dump-interp-corei9.txt', 'r') as file:
+#    for l_no, line in enumerate(file):
+        # search string
+#        if searchOpcode in line:
+#            print('string found in a file')
+#            print('Line number:', l_no)
+#            print('Line:', line) 
+            # This will not look at other lines 
+            # break
+        
+#what2Return = "None" 
+#if str2Find in file.read():
+#    what2Return = str2Find
+#    print('found = ', what2Return)
     
