@@ -1,4 +1,4 @@
-file = open('fixed-corei9.txt', 'r')
+file = open('opcode-corei9.txt', 'r')
 
 searchOpcode = ['<__stubACC0>:', '<__stubACC>:', '<__stubACC2>:', '<__stubACC3>:', '<__stubACC4>:', '<__stubACC5>:', '<__stubACC6>:', '<__stubACC7>:',
         '<__stubACC>:', '<__stubPUSH>:', '<__stubPUSHACC0>:', '<__stubPUSHACC1>:', '<__stubPUSHACC2>:', '<__stubPUSHACC3>:', '<__stubPUSHACC4>:', 
@@ -29,6 +29,6 @@ for line in file:
     if any(word in line for word in searchOpcode): 
         instructions = line
         print(line)
-        for instructions in file: 
-            print(instructions)
+        for instructions in file:
+            print(instructions.split("\t")[2])
     
