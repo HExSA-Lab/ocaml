@@ -30,5 +30,6 @@ for line in file:
         instructions = line
         print(line)
         for instructions in file:
-            print(instructions.split("\t")[2])
+            print(instructions)
+            #print(instructions.split("\t")[2])
     
