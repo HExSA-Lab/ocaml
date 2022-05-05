@@ -27,9 +27,10 @@ for line in file:
     if any(word in line for word in ['\r\n']):
         break
     if any(word in line for word in searchOpcode): 
-        instructions = line
+        instructions = line.split("\t")
         print(line)
         for instructions in file:
-            print(instructions)
+            if len(instructions) > 2:
+                print(instructions.split("\t")[2])
             #print(instructions.split("\t")[2])
     
