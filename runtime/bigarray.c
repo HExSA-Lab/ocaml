@@ -217,7 +217,7 @@ CAMLexport const struct custom_operations caml_ba_ops = {
    [dim] may point into an object in the OCaml heap.
 */
 CAMLexport value
-caml_ba_alloc(int flags, int num_dims, void * data, intnat * dim)
+caml_ba_alloc(int flags, int num_dims, int far, void * data, intnat * dim)
 {
   uintnat num_elts, asize, size;
   int uses_resources;
@@ -238,6 +238,8 @@ caml_ba_alloc(int flags, int num_dims, void * data, intnat * dim)
                          caml_ba_element_size[flags & CAML_BA_KIND_MASK],
                          &size))
     caml_raise_out_of_memory();
+
+  /* TODO: use far somehow here */
   if (data == NULL) {
     data = malloc(size);
     if (data == NULL && size != 0) caml_raise_out_of_memory();
@@ -262,7 +264,7 @@ caml_ba_alloc(int flags, int num_dims, void * data, intnat * dim)
 /* Same as caml_ba_alloc, but dimensions are passed as a list of
    arguments */
 
-CAMLexport value caml_ba_alloc_dims(int flags, int num_dims, void * data, ...)
+CAMLexport value caml_ba_alloc_dims(int flags, int num_dims, int far, void * data, ...)
 {
   va_list ap;
   intnat dim[CAML_BA_MAX_NUM_DIMS];
@@ -272,7 +274,7 @@ CAMLexport value caml_ba_alloc_dims(int flags, int num_dims, void * data, ...)
   va_start(ap, data);
   for (int i = 0; i < num_dims; i++) dim[i] = va_arg(ap, intnat);
   va_end(ap);
-  res = caml_ba_alloc(flags, num_dims, data, dim);
+  res = caml_ba_alloc(flags, num_dims, far, data, dim);
   return res;
 }
 
@@ -646,7 +648,7 @@ CAMLexport uintnat caml_ba_deserialize(void * dst)
 
 /* Allocate a bigarray from OCaml */
 
-CAMLprim value caml_ba_create(value vkind, value vlayout, value vdim)
+CAMLprim value caml_ba_create(value vkind, value vlayout, value far, value vdim)
 {
   intnat dim[CAML_BA_MAX_NUM_DIMS];
   mlsize_t num_dims;
@@ -662,7 +664,7 @@ CAMLprim value caml_ba_create(value vkind, value vlayout, value vdim)
       caml_invalid_argument("Bigarray.create: negative dimension");
   }
   flags = Caml_ba_kind_val(vkind) | Caml_ba_layout_val(vlayout);
-  return caml_ba_alloc(flags, num_dims, NULL, dim);
+  return caml_ba_alloc(flags, num_dims, far, NULL, dim);
 }
 
 /* Given a big array and a vector of indices, check that the indices
@@ -1132,9 +1134,11 @@ CAMLprim value caml_ba_slice(value vb, value vind)
   sub_data =
     (char *) b->data +
     offset * caml_ba_element_size[b->flags & CAML_BA_KIND_MASK];
+  /* TODO: get far */
+  int far = 0;
   /* Allocate an OCaml bigarray to hold the result */
   res = caml_ba_alloc(b->flags | CAML_BA_SUBARRAY,
-                      b->num_dims - num_inds, sub_data, sub_dims);
+                      b->num_dims - num_inds, far, sub_data, sub_dims);
   /* Copy the finalization function from the original array (PR#8568) */
   Custom_ops_val(res) = Custom_ops_val(vb);
   /* Create or update proxy in case of managed bigarray */
@@ -1161,8 +1165,10 @@ CAMLprim value caml_ba_change_layout(value vb, value vlayout)
     intnat new_dim[CAML_BA_MAX_NUM_DIMS];
     for (unsigned int i = 0; i < b->num_dims; i++)
       new_dim[i] = b->dim[b->num_dims - i - 1];
+    /* TODO: get far */
+    int far = 0;
     res = caml_ba_alloc(flags | CAML_BA_SUBARRAY,
-                        b->num_dims, b->data, new_dim);
+                        b->num_dims, far, b->data, new_dim);
     /* Copy the finalization function from the original array (PR#8568) */
     Custom_ops_val(res) = Custom_ops_val(vb);
     caml_ba_update_proxy(b, Caml_ba_array_val(res));
@@ -1210,9 +1216,11 @@ CAMLprim value caml_ba_sub(value vb, value vofs, value vlen)
   sub_data =
     (char *) b->data +
     ofs * mul * caml_ba_element_size[b->flags & CAML_BA_KIND_MASK];
+  /* TODO: get far */
+  int far = 0;
   /* Allocate an OCaml bigarray to hold the result */
   res = caml_ba_alloc(b->flags | CAML_BA_SUBARRAY,
-                      b->num_dims, sub_data, b->dim);
+                      b->num_dims, far, sub_data, b->dim);
   /* Copy the finalization function from the original array (PR#8568) */
   Custom_ops_val(res) = Custom_ops_val(vb);
   /* Doctor the changed dimension */
@@ -1382,8 +1390,10 @@ CAMLprim value caml_ba_reshape(value vb, value vdim)
   /* Check that sizes agree */
   if (num_elts != caml_ba_num_elts(b))
     caml_invalid_argument("Bigarray.reshape: size mismatch");
+  /* TODO: get far */
+  int far = 0;
   /* Create bigarray with same data and new dimensions */
-  res = caml_ba_alloc(b->flags | CAML_BA_SUBARRAY, num_dims, b->data, dim);
+  res = caml_ba_alloc(b->flags | CAML_BA_SUBARRAY, num_dims, far, b->data, dim);
   /* Copy the finalization function from the original array (PR#8568) */
   Custom_ops_val(res) = Custom_ops_val(vb);
   /* Create or update proxy in case of managed bigarray */
