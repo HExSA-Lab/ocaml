@@ -125,7 +125,7 @@ module Bytecode = struct
         let compunit : compilation_unit = unit_header in
         seek_in ic compunit.cu_pos;
         let code =
-          Bigarray.Array1.create Bigarray.Char Bigarray.c_layout
+          Bigarray.Array1.create Bigarray.Char Bigarray.c_layout ~far:false
             compunit.cu_codesize
         in
         really_input_bigarray ic code 0 compunit.cu_codesize;
