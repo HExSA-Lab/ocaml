@@ -213,7 +213,7 @@ let load_compunit ic filename ppf compunit =
   check_consistency ppf filename compunit;
   seek_in ic compunit.cu_pos;
   let code =
-    Bigarray.Array1.create Bigarray.Char Bigarray.c_layout compunit.cu_codesize
+    Bigarray.Array1.create Bigarray.Char Bigarray.c_layout ~far:false compunit.cu_codesize
   in
   match In_channel.really_input_bigarray ic code 0 compunit.cu_codesize with
     | None -> raise End_of_file
