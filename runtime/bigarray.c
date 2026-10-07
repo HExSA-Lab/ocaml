@@ -25,6 +25,7 @@
 #include "caml/fail.h"
 #include "caml/intext.h"
 #include "caml/hash.h"
+#include "caml/misc.h"
 #include "caml/memory.h"
 #include "caml/mlvalues.h"
 #include "caml/signals.h"
@@ -648,7 +649,7 @@ CAMLexport uintnat caml_ba_deserialize(void * dst)
 
 /* Allocate a bigarray from OCaml */
 
-CAMLprim value caml_ba_create(value vkind, value vlayout, value far, value vdim)
+CAMLprim value caml_ba_create_far(value vkind, value vlayout, value vfar, value vdim)
 {
   intnat dim[CAML_BA_MAX_NUM_DIMS];
   mlsize_t num_dims;
@@ -664,7 +665,11 @@ CAMLprim value caml_ba_create(value vkind, value vlayout, value far, value vdim)
       caml_invalid_argument("Bigarray.create: negative dimension");
   }
   flags = Caml_ba_kind_val(vkind) | Caml_ba_layout_val(vlayout);
-  return caml_ba_alloc(flags, num_dims, far, NULL, dim);
+  return caml_ba_alloc(flags, num_dims, Bool_val(vfar), NULL, dim);
+}
+CAMLprim value caml_ba_create(value vkind, value vlayout, value vdim)
+{
+  return caml_ba_create_far(vkind, vlayout, Val_int(0), vdim);
 }
 
 /* Given a big array and a vector of indices, check that the indices

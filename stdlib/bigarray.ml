@@ -99,7 +99,7 @@ module Genarray = struct
   type (!'a, !'b, !'c) t
   external create:
     ('a, 'b) kind -> 'c layout -> far:bool -> int array -> ('a, 'b, 'c) t
-     = "caml_ba_create"
+     = "caml_ba_create_far"
   external get: ('a, 'b, 'c) t -> int array -> 'a
      = "caml_ba_get_generic"
   external set: ('a, 'b, 'c) t -> int array -> 'a -> unit
