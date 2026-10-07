@@ -206,7 +206,11 @@ let link_compunit accu output_fun currpos_fun inchan file_name compunit =
   check_consistency file_name compunit;
   seek_in inchan compunit.cu_pos;
   let code_block =
-    Bigarray.Array1.create Bigarray.Char Bigarray.c_layout compunit.cu_codesize
+    Bigarray.Array1.create
+      Bigarray.Char
+      Bigarray.c_layout
+      ~far:false
+      compunit.cu_codesize
   in
   match
     In_channel.really_input_bigarray inchan code_block 0 compunit.cu_codesize
