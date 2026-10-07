@@ -117,8 +117,8 @@ module Genarray = struct
            idx.(col) <- j;
            floop arr idx f (pred col) max
          done
-  let init (type t) kind (layout : t layout) dims f =
-    let arr = create kind layout dims in
+  let init (type t) kind (layout : t layout) ~far dims f =
+    let arr = create kind layout ~far dims in
     let dlen = Array.length dims in
     match layout with
     | C_layout -> cloop arr (Array.make dlen 0) f 0 dims; arr
@@ -177,7 +177,7 @@ module Array0 = struct
     let a = create kind layout ~far in
     set a v;
     a
-  let init = of_value ~far
+  let init = of_value
 end
 
 module Array1 = struct

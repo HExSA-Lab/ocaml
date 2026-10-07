@@ -293,7 +293,7 @@ module Genarray :
      OCaml type [float]. *)
 
   external create: ('a, 'b) kind -> 'c layout -> far:bool -> int array -> ('a, 'b, 'c) t
-    = "caml_ba_create"
+    = "caml_ba_create_far"
   (** [Genarray.create kind layout dimensions] returns a new Bigarray
      whose element kind is determined by the parameter [kind] (one of
      [float32], [float64], [int8_signed], etc) and whose layout is
@@ -315,7 +315,7 @@ module Genarray :
      is not in the range 0 to 16 inclusive, or if one of the dimensions
      is negative. *)
 
-  val init: ('a, 'b) kind -> 'c layout -> int array -> (int array -> 'a) ->
+  val init: ('a, 'b) kind -> 'c layout -> far:bool -> int array -> (int array -> 'a) ->
             ('a, 'b, 'c) t
   (** [Genarray.init kind layout dimensions f] returns a new Bigarray [b]
       whose element kind is determined by the parameter [kind] (one of
@@ -569,7 +569,7 @@ module Array0 : sig
   (** Fill the given Bigarray with the given value.
      See {!Genarray.fill} for more details. *)
 
-  val of_value: ('a, 'b) kind -> 'c layout -> 'a -> ('a, 'b, 'c) t
+  val of_value: ('a, 'b) kind -> 'c layout -> far:bool -> 'a -> ('a, 'b, 'c) t
   (** Build a zero-dimensional Bigarray initialized from the
      given value.  *)
 
