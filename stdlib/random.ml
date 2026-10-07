@@ -28,7 +28,7 @@ module State = struct
       = "caml_lxm_next" "caml_lxm_next_unboxed" [@@noalloc]
 
   let create () : t =
-    Array1.create Int64 C_layout 4
+    Array1.create Int64 C_layout ~far:false 4
 
   let set s i1 i2 i3 i4 =
     Array1.unsafe_set s 0 (Int64.logor i1 1L); (* must be odd *)
