@@ -49,7 +49,8 @@ let () =
     )
 
 (* Buffering of bytecode *)
-let create_bigarray = Bigarray.Array1.create Bigarray.Char Bigarray.c_layout
+let create_bigarray =
+  Bigarray.Array1.create Bigarray.Char Bigarray.c_layout ~far:false
 
 let copy_bigarray src dst size =
   Bigarray.Array1.(blit (sub src 0 size) (sub dst 0 size))
