@@ -63,7 +63,12 @@ end
    satisfies signature S *)
 module Float_array : S = struct
   include Stdlib.Array
-  let create = create_float
+  let make n x = make n x
+  let create n = create_float n
+  let init n f = init n f
+  let make_matrix x y e = make_matrix x y e
+  let init_matrix x y f = init_matrix x y f
+
   let map_to_array f a = map f a
   let map_from_array f a = map f a
   let mem_ieee x a = exists ((=) x) a
