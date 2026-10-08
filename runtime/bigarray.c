@@ -19,6 +19,7 @@
 #include <stdarg.h>
 #include <string.h>
 #include <assert.h>
+#include <errno.h>
 #include "caml/alloc.h"
 #include "caml/bigarray.h"
 #include "caml/custom.h"
@@ -30,6 +31,8 @@
 #include "caml/mlvalues.h"
 #include "caml/signals.h"
 #include "caml/camlatomic.h"
+#include "caml/sys.h"
+#include "caml/tier_alloc.h"
 
 /* Half-precision floating point numbers */
 
@@ -211,9 +214,24 @@ CAMLexport const struct custom_operations caml_ba_ops = {
 
 /* Allocation of a big array */
 
+/* Raise the OCaml exception for a failed [caml_tier_alloc]: Out_of_memory
+   when memory ran out, Failure when NUMA configuration or binding failed. */
+CAMLnoret static void caml_ba_raise_alloc_error(const char * operation,
+                                                int err)
+{
+  char buf[128];
+  if (strcmp(operation, "malloc") == 0
+      || (err == ENOMEM && (strcmp(operation, "mmap") == 0
+                            || strcmp(operation, "size rounding") == 0)))
+    caml_raise_out_of_memory();
+  caml_failwith_value(caml_alloc_sprintf("Bigarray.create: %s: %s", operation,
+                                         caml_strerror(err, buf, sizeof(buf))));
+}
+
 /* [caml_ba_alloc] will allocate a new bigarray object in the heap.
    If [data] is NULL, the memory for the contents is also allocated
-   (with [malloc]) by [caml_ba_alloc].
+   by [caml_ba_alloc], with [caml_tier_alloc]: [far] selects near or far
+   memory (see tier_alloc.h). [far] is ignored when [data] is not NULL.
    [data] cannot point into the OCaml heap.
    [dim] may point into an object in the OCaml heap.
 */
@@ -240,13 +258,13 @@ caml_ba_alloc(int flags, int num_dims, int far, void * data, intnat * dim)
                          &size))
     caml_raise_out_of_memory();
 
-  /* TODO: use far somehow here */
   if (data == NULL) {
-    data = malloc(size);
-    if (data == NULL && size != 0) caml_raise_out_of_memory();
     flags |= CAML_BA_MANAGED;
     /* backwards compatibility with C bindings that pass through flags */
-    flags &= ~CAML_BA_SUBARRAY;
+    flags &= ~(CAML_BA_SUBARRAY | CAML_BA_TIER_ALLOCATED);
+  } else if (!(flags & CAML_BA_SUBARRAY)) {
+    /* Only views inherit tier ownership; caller-supplied data never has it */
+    flags &= ~CAML_BA_TIER_ALLOCATED;
   }
   asize = SIZEOF_BA_ARRAY + num_dims * sizeof(intnat);
   uses_resources =
@@ -259,6 +277,18 @@ caml_ba_alloc(int flags, int num_dims, int far, void * data, intnat * dim)
   b->flags = flags;
   b->proxy = NULL;
   for (int i = 0; i < num_dims; i++) b->dim[i] = dimcopy[i];
+  /* Allocate new data only once the descriptor exists, so a failed
+     descriptor allocation cannot leak it. Until then [b->data] is NULL,
+     which finalization releases as nothing. No OCaml allocation happens
+     between here and the assignments below, so [b] stays valid. */
+  if (data == NULL) {
+    int mapped;
+    const char * operation;
+    data = caml_tier_alloc(size, far, &mapped, &operation);
+    if (data == NULL) caml_ba_raise_alloc_error(operation, errno);
+    b->data = data;
+    if (mapped) b->flags |= CAML_BA_TIER_ALLOCATED;
+  }
   return res;
 }
 
@@ -281,6 +311,16 @@ CAMLexport value caml_ba_alloc_dims(int flags, int num_dims, int far, void * dat
 
 /* Finalization of a big array */
 
+/* Release managed data with the allocator that produced it. [size] is the
+   byte size of the whole allocation, not of a view into it. */
+static void caml_ba_free_data(intnat flags, void * data, uintnat size)
+{
+  if (flags & CAML_BA_TIER_ALLOCATED)
+    caml_tier_free(data, size);
+  else
+    free(data);
+}
+
 CAMLexport void caml_ba_finalize(value v)
 {
   struct caml_ba_array * b = Caml_ba_array_val(v);
@@ -290,10 +330,11 @@ CAMLexport void caml_ba_finalize(value v)
     break;
   case CAML_BA_MANAGED:
     if (b->proxy == NULL) {
-      free(b->data);
+      /* Without a proxy, [b] is the only owner and spans the allocation */
+      caml_ba_free_data(b->flags, b->data, caml_ba_byte_size(b));
     } else {
       if (caml_atomic_counter_decr(&b->proxy->refcount) == 0) {
-        free(b->proxy->data);
+        caml_ba_free_data(b->flags, b->proxy->data, b->proxy->size);
         free(b->proxy);
       }
     }
@@ -595,7 +636,10 @@ CAMLexport uintnat caml_ba_deserialize(void * dst)
   if (descriptor_size > Bsize_custom_data(dst))
     caml_deserialize_error("input_value: bigarray buffer overflow");
   b->num_dims = num_dims;
-  b->flags = caml_deserialize_uint_4() | CAML_BA_MANAGED;
+  /* Serialized flags hold only kind and layout; ownership is always local,
+     and deserialized data below comes from malloc. */
+  b->flags = (caml_deserialize_uint_4()
+              & (CAML_BA_KIND_MASK | CAML_BA_LAYOUT_MASK)) | CAML_BA_MANAGED;
   b->proxy = NULL;
   for (int i = 0; i < b->num_dims; i++) {
     intnat len = caml_deserialize_uint_2();
@@ -1087,12 +1131,20 @@ static void caml_ba_update_proxy(struct caml_ba_array * b1,
   } else {
     /* Otherwise, create proxy and attach it to both b1 and b2 */
     proxy = malloc(sizeof(struct caml_ba_proxy));
-    if (proxy == NULL) caml_raise_out_of_memory();
+    if (proxy == NULL) {
+      /* b2 shares b1's data but has no proxy: stop its finalizer from
+         releasing that data. b2 is never returned to OCaml. */
+      b2->data = NULL;
+      caml_raise_out_of_memory();
+    }
     caml_atomic_counter_init(&proxy->refcount, 2);
     /* initial refcount: 2 = original array + sub array */
     proxy->data = b1->data;
+    /* b1 has no proxy yet, so it spans the whole allocation. Mapped files
+       and tier allocations need that size to unmap it. */
     proxy->size =
-      b1->flags & CAML_BA_MAPPED_FILE ? caml_ba_byte_size(b1) : 0;
+      b1->flags & (CAML_BA_MAPPED_FILE | CAML_BA_TIER_ALLOCATED)
+      ? caml_ba_byte_size(b1) : 0;
     b1->proxy = proxy;
     b2->proxy = proxy;
   }
@@ -1139,7 +1191,7 @@ CAMLprim value caml_ba_slice(value vb, value vind)
   sub_data =
     (char *) b->data +
     offset * caml_ba_element_size[b->flags & CAML_BA_KIND_MASK];
-  /* TODO: get far */
+  /* The view shares b's data, so far does not apply */
   int far = 0;
   /* Allocate an OCaml bigarray to hold the result */
   res = caml_ba_alloc(b->flags | CAML_BA_SUBARRAY,
@@ -1164,13 +1216,14 @@ CAMLprim value caml_ba_change_layout(value vb, value vlayout)
   /* if the layout is different, change the flags and reverse the dimensions */
   if (Caml_ba_layout_val(vlayout) != (b->flags & CAML_BA_LAYOUT_MASK)) {
     /* change the flags to reflect the new layout */
-    int flags = (b->flags & (CAML_BA_KIND_MASK | CAML_BA_MANAGED_MASK))
+    int flags = (b->flags & (CAML_BA_KIND_MASK | CAML_BA_MANAGED_MASK
+                             | CAML_BA_TIER_ALLOCATED))
                  | Caml_ba_layout_val(vlayout);
     /* reverse the dimensions */
     intnat new_dim[CAML_BA_MAX_NUM_DIMS];
     for (unsigned int i = 0; i < b->num_dims; i++)
       new_dim[i] = b->dim[b->num_dims - i - 1];
-    /* TODO: get far */
+    /* The view shares b's data, so far does not apply */
     int far = 0;
     res = caml_ba_alloc(flags | CAML_BA_SUBARRAY,
                         b->num_dims, far, b->data, new_dim);
@@ -1221,7 +1274,7 @@ CAMLprim value caml_ba_sub(value vb, value vofs, value vlen)
   sub_data =
     (char *) b->data +
     ofs * mul * caml_ba_element_size[b->flags & CAML_BA_KIND_MASK];
-  /* TODO: get far */
+  /* The view shares b's data, so far does not apply */
   int far = 0;
   /* Allocate an OCaml bigarray to hold the result */
   res = caml_ba_alloc(b->flags | CAML_BA_SUBARRAY,
@@ -1395,7 +1448,7 @@ CAMLprim value caml_ba_reshape(value vb, value vdim)
   /* Check that sizes agree */
   if (num_elts != caml_ba_num_elts(b))
     caml_invalid_argument("Bigarray.reshape: size mismatch");
-  /* TODO: get far */
+  /* The view shares b's data, so far does not apply */
   int far = 0;
   /* Create bigarray with same data and new dimensions */
   res = caml_ba_alloc(b->flags | CAML_BA_SUBARRAY, num_dims, far, b->data, dim);
