@@ -40,6 +40,17 @@ performance degradations on our issue tracker.
      link="https://ci.appveyor.com/project/avsm/ocaml"]
 |=====
 
+== STRATA
+
+STRATA produces a version of OCaml that supports an additional (and optional)
+parameter for the `Array.make` and other related constructors. This `far`
+parameter determines whether the array will be initialized on the near or far
+NUMA node.
+
+To link OCaml with `libnuma`, configure like so:
+`LIBS="-lnuma" LDFLAGS="-lnuma" ./configure`. Now you can build as normal and
+run programs that make use of the `far` parameter.
+
 == Overview
 
 OCaml is a functional, statically-typed programming language from the
