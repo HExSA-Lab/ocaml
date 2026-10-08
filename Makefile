@@ -1255,6 +1255,7 @@ runtime_COMMON_C_SOURCES = \
   str \
   sync \
   sys \
+  tier_alloc \
   $(UNIX_OR_WIN32) \
   weak
 
