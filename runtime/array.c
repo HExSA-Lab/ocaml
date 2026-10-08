@@ -17,6 +17,7 @@
 
 /* Operations on arrays */
 #include <string.h>
+#include <numa.h>
 #include "caml/alloc.h"
 #include "caml/fail.h"
 #include "caml/memory.h"
@@ -24,6 +25,14 @@
 #include "caml/mlvalues.h"
 #include "caml/signals.h"
 #include "caml/runtime_events.h"
+
+#define TARGET_FAR_NUMA_NODE 1
+
+static int get_far_node() {
+  if (numa_available() < 0) return 0;
+  int max = numa_max_node();
+  return (TARGET_FAR_NUMA_NODE <= max) ? TARGET_FAR_NUMA_NODE : 0;
+}
 
 static const mlsize_t mlsize_t_max = CAML_UINTNAT_MAX;
 
@@ -309,11 +318,34 @@ CAMLprim value caml_array_make(value len, value init)
 /* [len] is a [value] representing number of words or floats */
 CAMLprim value caml_array_make_far(value far, value len, value init)
 {
-  value arr = caml_array_make(len, init);
-
-  if (Bool_val(far)) {
-    register_far_array(arr);
+  if (!Bool_val(far)) {
+    return caml_array_make(len, init);
   }
+
+  mlsize_t wosize = Long_val(len);
+  if (wosize == 0) return Atom(0);
+
+  /* Calculate size in bytes: (length + 1 for the header) * word size */
+  size_t bytes = (wosize + 1) * sizeof(value);
+
+  /* Allocate raw memory directly on the far NUMA node */
+  int node = get_far_node();
+  header_t *hp = numa_alloc_onnode(bytes, node);
+  if (hp == NULL) caml_raise_out_of_memory();
+
+  /* Manually write the OCaml Out-of-Heap block header (Tag 0 is a standard array) */
+  *hp = Caml_out_of_heap_header(wosize, 0);
+
+  /* Step past the header to get the OCaml value pointer */
+  value arr = Val_hp(hp);
+
+  /* Initialize the array fields */
+  for (mlsize_t i = 0; i < wosize; i++) {
+    Field(arr, i) = init;
+  }
+
+  /* Register as a global root so the GC traces its elements */
+  register_far_array(arr);
 
   return arr;
 }
@@ -342,14 +374,29 @@ CAMLprim value caml_array_create_float(value len)
 }
 
 /* [len] is a [value] representing number of floats */
-/* [ int -> float array ] */
+/* [ ?far:bool -> int -> float array ] */
 CAMLprim value caml_array_create_float_far(value far, value len)
 {
-  value arr = caml_array_create_float(len);
-
-  if (Bool_val(far)) {
-    register_far_array(arr);
+  if (!Bool_val(far)) {
+    return caml_array_create_float(len);
   }
+
+  /* Float arrays take Double_wosize (usually 1 word per float on 64-bit) */
+  mlsize_t wosize = Long_val(len) * Double_wosize;
+  if (wosize == 0) return Atom(0);
+
+  size_t bytes = (wosize + 1) * sizeof(value);
+
+  int node = get_far_node();
+  header_t *hp = numa_alloc_onnode(bytes, node);
+  if (hp == NULL) caml_raise_out_of_memory();
+
+  /* Tag 254 is Double_array_tag */
+  *hp = Caml_out_of_heap_header(wosize, Double_array_tag);
+
+  value arr = Val_hp(hp);
+
+  register_far_array(arr);
 
   return arr;
 }
