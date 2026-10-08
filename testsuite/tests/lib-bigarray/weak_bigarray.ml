@@ -6,7 +6,7 @@ open Bigarray
 open Bigarray.Array1
 
 let () =
-  let a = ref (create float64 c_layout 10) in
+  let a = ref (create float64 c_layout ~far:false 10) in
   Gc.compact ();
   set !a 0 42.;
 
@@ -20,9 +20,9 @@ let () =
   in
   Printf.printf "a.(0) = %f\n" (get !a 0);
   Printf.printf "b.(0) = %f\n" (get b 0);
-  a := create float64 c_layout 10;
+  a := create float64 c_layout ~far:false 10;
   Gc.compact ();
 
-  let c = create float64 c_layout 10 in
+  let c = create float64 c_layout ~far:false 10 in
   set c 0 33.;
   Printf.printf "b.(0) = %f\n" (get b 0);

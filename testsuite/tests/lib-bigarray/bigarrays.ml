@@ -49,8 +49,8 @@ let tests () =
     let rec test a i = function
         [] -> true
       | (v1, v2) :: tl -> a.{i} = v2 && test a (i+1) tl in
-    let ca = Array1.create kind c_layout (List.length vals) in
-    let fa = Array1.create kind fortran_layout (List.length vals) in
+    let ca = Array1.create kind c_layout ~far:false (List.length vals) in
+    let fa = Array1.create kind fortran_layout ~far:false (List.length vals) in
     set ca 0 vals;
     set fa 1 vals;
     test ca 0 vals && test fa 1 vals in
@@ -149,14 +149,14 @@ let tests () =
                   {im=3.1415;re=1.2345678}, {im=3.1415;re=1.2345678}]);
 
   let from_list kind vals =
-    let a = Array1.create kind c_layout (List.length vals) in
+    let a = Array1.create kind c_layout ~far:false (List.length vals) in
     let rec set i = function
         [] -> ()
       | hd :: tl -> a.{i} <- hd; set (i+1) tl in
     set 0 vals;
     a in
   let from_list_fortran kind vals =
-    let a = Array1.create kind fortran_layout (List.length vals) in
+    let a = Array1.create kind fortran_layout ~far:false (List.length vals) in
     let rec set i = function
         [] -> ()
       | hd :: tl -> a.{i} <- hd; set (i+1) tl in
@@ -168,8 +168,8 @@ let tests () =
      Cmmgen.bigarray_indexing. *)
   begin
     let v = 123 in
-    let cb = Array1.create int8_signed c_layout 1000 in
-    let fb = Array1.create int8_signed fortran_layout 1000 in
+    let cb = Array1.create int8_signed c_layout ~far:false 1000 in
+    let fb = Array1.create int8_signed fortran_layout ~far:false 1000 in
     Array1.fill cb v;
     Array1.fill fb v;
     let return = ref true in
@@ -187,8 +187,8 @@ let tests () =
   end;
   begin
     let v = 123 in
-    let cb = Array1.create int16_unsigned c_layout 1000 in
-    let fb = Array1.create int16_unsigned fortran_layout 1000 in
+    let cb = Array1.create int16_unsigned c_layout ~far:false 1000 in
+    let fb = Array1.create int16_unsigned fortran_layout ~far:false 1000 in
     Array1.fill cb v;
     Array1.fill fb v;
     let return = ref true in
@@ -206,8 +206,8 @@ let tests () =
   end;
   begin
     let v = 123. in
-    let cb = Array1.create float32 c_layout 1000 in
-    let fb = Array1.create float32 fortran_layout 1000 in
+    let cb = Array1.create float32 c_layout ~far:false 1000 in
+    let fb = Array1.create float32 fortran_layout ~far:false 1000 in
     Array1.fill cb v;
     Array1.fill fb v;
     let return = ref true in
@@ -226,8 +226,8 @@ let tests () =
 
   begin
     let v = 123. in
-    let cb = Array1.create float64 c_layout 1000 in
-    let fb = Array1.create float64 fortran_layout 1000 in
+    let cb = Array1.create float64 c_layout ~far:false 1000 in
+    let fb = Array1.create float64 fortran_layout ~far:false 1000 in
     Array1.fill cb v;
     Array1.fill fb v;
     let return = ref true in
@@ -260,36 +260,36 @@ let tests () =
                   -65520.0, neg_infinity]);
 
   testing_function "set/get (specialized)";
-  let a = Array1.create int c_layout 3 in
+  let a = Array1.create int c_layout ~far:false 3 in
   for i = 0 to 2 do a.{i} <- i done;
   for i = 0 to 2 do test (i+1) a.{i} i done;
   test 4 true (try ignore a.{3}; false with Invalid_argument _ -> true);
   test 5 true (try ignore a.{-1}; false with Invalid_argument _ -> true);
 
-  let b = Array1.create float64 fortran_layout 3 in
+  let b = Array1.create float64 fortran_layout ~far:false 3 in
   for i = 1 to 3 do b.{i} <- float i done;
   for i = 1 to 3 do test (5 + i) b.{i} (float i) done;
   test 8 true (try ignore b.{4}; false with Invalid_argument _ -> true);
   test 9 true (try ignore b.{0}; false with Invalid_argument _ -> true);
 
-  let c = Array1.create complex64 c_layout 3 in
+  let c = Array1.create complex64 c_layout ~far:false 3 in
   for i = 0 to 2 do c.{i} <- {re=float i; im=0.0} done;
   for i = 0 to 2 do test (10 + i) c.{i} {re=float i; im=0.0} done;
   test 13 true (try ignore c.{3}; false with Invalid_argument _ -> true);
   test 14 true (try ignore c.{-1}; false with Invalid_argument _ -> true);
 
-  let d = Array1.create complex32 fortran_layout 3 in
+  let d = Array1.create complex32 fortran_layout ~far:false 3 in
   for i = 1 to 3 do d.{i} <- {re=float i; im=0.0} done;
   for i = 1 to 3 do test (14 + i) d.{i} {re=float i; im=0.0} done;
   test 18 true (try ignore d.{4}; false with Invalid_argument _ -> true);
   test 19 true (try ignore d.{0}; false with Invalid_argument _ -> true);
 
   testing_function "set/get (unsafe, specialized)";
-  let a = Array1.create int c_layout 3 in
+  let a = Array1.create int c_layout ~far:false 3 in
   for i = 0 to 2 do Array1.unsafe_set a i i done;
   for i = 0 to 2 do test (i+1) (Array1.unsafe_get a i) i done;
 
-  let b = Array1.create float64 fortran_layout 3 in
+  let b = Array1.create float64 fortran_layout ~far:false 3 in
   for i = 1 to 3 do Array1.unsafe_set b i (float i) done;
   for i = 1 to 3 do test (5 + i) (Array1.unsafe_get b i) (float i) done;
 
@@ -469,7 +469,7 @@ let tests () =
   testing_function "blit, fill";
   let test_blit_fill kind data initval ofs len =
     let a = from_list kind data in
-    let b = Array1.create kind c_layout (List.length data) in
+    let b = Array1.create kind c_layout ~far:false (List.length data) in
     Array1.blit a b;
     (a = b) &&
     (Array1.fill (Array1.sub b ofs len) initval;
@@ -500,20 +500,20 @@ let tests () =
   test 12 true (test_blit_fill complex64 [Complex.zero; Complex.one; Complex.i]
                              Complex.i 1 1);
   testing_function "slice";
-  let a = Array1.of_array int c_layout [| 5; 4; 3 |] in
-  test 1 (Array1.slice a 0) (Array0.of_value int c_layout 5);
-  test 2 (Array1.slice a 1) (Array0.of_value int c_layout 4);
-  test 3 (Array1.slice a 2) (Array0.of_value int c_layout 3);
-  let a = Array1.of_array int fortran_layout [| 5; 4; 3 |] in
-  test 6 (Array1.slice a 1) (Array0.of_value int fortran_layout 5);
-  test 7 (Array1.slice a 2) (Array0.of_value int fortran_layout 4);
-  test 8 (Array1.slice a 3) (Array0.of_value int fortran_layout 3);
+  let a = Array1.of_array int c_layout ~far:false [| 5; 4; 3 |] in
+  test 1 (Array1.slice a 0) (Array0.of_value int c_layout ~far:false 5);
+  test 2 (Array1.slice a 1) (Array0.of_value int c_layout ~far:false 4);
+  test 3 (Array1.slice a 2) (Array0.of_value int c_layout ~far:false 3);
+  let a = Array1.of_array int fortran_layout ~far:false [| 5; 4; 3 |] in
+  test 6 (Array1.slice a 1) (Array0.of_value int fortran_layout ~far:false 5);
+  test 7 (Array1.slice a 2) (Array0.of_value int fortran_layout ~far:false 4);
+  test 8 (Array1.slice a 3) (Array0.of_value int fortran_layout ~far:false 3);
 
   testing_function "init";
   let check1 arr graph = List.for_all (fun (i, fi) -> arr.{i} = fi) graph in
 
   let ba, log = with_trace @@ fun trace ->
-     Array1.init int c_layout 5 (fun x -> trace (x,x); x) in
+     Array1.init int c_layout ~far:false 5 (fun x -> trace (x,x); x) in
   test 1 log [0,0;
               1,1;
               2,2;
@@ -522,7 +522,7 @@ let tests () =
   test 2 true (check1 ba log);
 
   let ba, log = with_trace @@ fun trace ->
-     Array1.init int fortran_layout 5 (fun x -> trace (x,x); x) in
+     Array1.init int fortran_layout ~far:false 5 (fun x -> trace (x,x); x) in
   test 3 log [1,1;
               2,2;
               3,3;
@@ -536,7 +536,7 @@ let tests () =
   testing_function "------ Array2 --------";
   testing_function "create/set/get";
   let make_array2 kind layout ind0 dim1 dim2 fromint =
-    let a = Array2.create kind layout dim1 dim2 in
+    let a = Array2.create kind layout ~far:false dim1 dim2 in
     for i = ind0 to dim1 - 1 + ind0 do
       for j = ind0 to dim2 - 1 + ind0 do
         a.{i,j} <- (fromint (i * 1000 + j))
@@ -595,7 +595,7 @@ let tests () =
                   1 10 20 makecomplex);
 
   testing_function "set/get (specialized)";
-  let a = Array2.create int16_signed c_layout 3 3 in
+  let a = Array2.create int16_signed c_layout ~far:false 3 3 in
   for i = 0 to 2 do for j = 0 to 2 do a.{i,j} <- i-j done done;
   let ok = ref true in
   for i = 0 to 2 do
@@ -607,7 +607,7 @@ let tests () =
   test 4 true (try ignore a.{0,3}; false with Invalid_argument _ -> true);
   test 5 true (try ignore a.{0,-1}; false with Invalid_argument _ -> true);
 
-  let b = Array2.create float32 fortran_layout 3 3 in
+  let b = Array2.create float32 fortran_layout ~far:false 3 3 in
   for i = 1 to 3 do for j = 1 to 3 do b.{i,j} <- float(i-j) done done;
   let ok = ref true in
   for i = 1 to 3 do
@@ -620,7 +620,7 @@ let tests () =
   test 10 true (try ignore b.{1,0}; false with Invalid_argument _ -> true);
 
   testing_function "set/get (unsafe, specialized)";
-  let a = Array2.create int16_signed c_layout 3 3 in
+  let a = Array2.create int16_signed c_layout ~far:false 3 3 in
   for i = 0 to 2 do for j = 0 to 2 do Array2.unsafe_set a i j (i-j) done done;
   let ok = ref true in
   for i = 0 to 2 do
@@ -628,7 +628,7 @@ let tests () =
   done;
   test 1 true !ok;
 
-  let b = Array2.create float32 fortran_layout 3 3 in
+  let b = Array2.create float32 fortran_layout ~far:false 3 3 in
   for i = 1 to 3 do
     for j = 1 to 3 do Array2.unsafe_set b i j (float(i-j)) done
   done;
@@ -649,7 +649,7 @@ let tests () =
   test 4 (Array2.dim2 b) 6;
 
   testing_function "size_in_bytes_two";
-  let a = Array2.create int c_layout 4 6 in
+  let a = Array2.create int c_layout ~far:false 4 6 in
   test 1 (Array2.size_in_bytes a) (24 * (kind_size_in_bytes int));
 
   testing_function "sub";
@@ -695,7 +695,7 @@ let tests () =
   let check2 arr graph = List.for_all (fun ((i,j), fij) -> arr.{i,j} = fij) graph in
 
   let ba, log = with_trace @@ fun trace ->
-     Array2.init int c_layout 4 2
+     Array2.init int c_layout ~far:false 4 2
        (fun x y -> let v = 10*x + y in trace ((x,y),v); v) in
   test 1 log [(0,0), 00; (0,1), 01;
               (1,0), 10; (1,1), 11;
@@ -704,7 +704,7 @@ let tests () =
   test 2 true (check2 ba log);
 
   let ba, log = with_trace @@ fun trace ->
-     Array2.init int fortran_layout 4 2
+     Array2.init int fortran_layout ~far:false 4 2
        (fun x y -> let v = 10*x + y in trace ((x,y),v); v) in
   test 3 log [(1,1), 11; (2,1), 21; (3,1), 31; (4,1), 41;
               (1,2), 12; (2,2), 22; (3,2), 32; (4,2), 42];
@@ -716,7 +716,7 @@ let tests () =
   testing_function "------ Array3 --------";
   testing_function "create/set/get";
   let make_array3 kind layout ind0 dim1 dim2 dim3 fromint =
-    let a = Array3.create kind layout dim1 dim2 dim3 in
+    let a = Array3.create kind layout ~far:false dim1 dim2 dim3 in
     for i = ind0 to dim1 - 1 + ind0 do
       for j = ind0 to dim2 - 1 + ind0 do
         for k = ind0 to dim3 - 1 + ind0 do
@@ -780,7 +780,7 @@ let tests () =
 
 
   testing_function "set/get (specialized)";
-  let a = Array3.create int32 c_layout 2 3 4 in
+  let a = Array3.create int32 c_layout ~far:false 2 3 4 in
   for i = 0 to 1 do for j = 0 to 2 do for k = 0 to 3 do
      a.{i,j,k} <- Int32.of_int((i lsl 4) + (j lsl 2) + k)
   done done done;
@@ -790,7 +790,7 @@ let tests () =
   done done done;
   test 1 true !ok;
 
-  let b = Array3.create int64 fortran_layout 2 3 4 in
+  let b = Array3.create int64 fortran_layout ~far:false 2 3 4 in
   for i = 1 to 2 do for j = 1 to 3 do for k = 1 to 4 do
      b.{i,j,k} <- Int64.of_int((i lsl 4) + (j lsl 2) + k)
   done done done;
@@ -801,7 +801,7 @@ let tests () =
   test 2 true !ok;
 
   testing_function "set/get (unsafe, specialized)";
-  let a = Array3.create int32 c_layout 2 3 4 in
+  let a = Array3.create int32 c_layout ~far:false 2 3 4 in
   for i = 0 to 1 do for j = 0 to 2 do for k = 0 to 3 do
      Array3.unsafe_set a i j k (Int32.of_int((i lsl 4) + (j lsl 2) + k))
   done done done;
@@ -823,7 +823,7 @@ let tests () =
   test 6 (Array3.dim3 b) 6;
 
   testing_function "size_in_bytes_three";
-  let a = Array3.create int c_layout 4 5 6 in
+  let a = Array3.create int c_layout ~far:false 4 5 6 in
   test 1 (Array3.size_in_bytes a) (120 * (kind_size_in_bytes int));
 
   testing_function "slice1";
@@ -842,7 +842,7 @@ let tests () =
     List.for_all (fun ((i,j,k), fijk) -> arr.{i,j,k} = fijk) graph in
 
   let ba, log = with_trace @@ fun trace ->
-     Array3.init int c_layout 4 2 3
+     Array3.init int c_layout ~far:false 4 2 3
        (fun x y z -> let v = 100*x + 10*y + z in trace ((x,y,z),v); v) in
   test 1 log [(0,0,0), 000; (0,0,1), 001; (0,0,2), 002;
               (0,1,0), 010; (0,1,1), 011; (0,1,2), 012;
@@ -858,7 +858,7 @@ let tests () =
   test 2 true (check3 ba log);
 
   let ba, log = with_trace @@ fun trace ->
-     Array3.init int fortran_layout 4 2 3
+     Array3.init int fortran_layout ~far:false 4 2 3
        (fun x y z -> let v = 100*x + 10*y + z in trace ((x,y,z), v); v) in
   test 3 log [(1,1,1), 111; (2,1,1), 211; (3,1,1), 311; (4,1,1), 411;
               (1,2,1), 121; (2,2,1), 221; (3,2,1), 321; (4,2,1), 421;
@@ -871,7 +871,7 @@ let tests () =
   test 4 true (check3 ba log);
 
   testing_function "size_in_bytes_general";
-  let a = Genarray.create int c_layout [|2;2;2;2;2|] in
+  let a = Genarray.create int c_layout ~far:false [|2;2;2;2;2|] in
   test 1 (Genarray.size_in_bytes a) (32 * (kind_size_in_bytes int));
 
   testing_function "init";
@@ -879,7 +879,7 @@ let tests () =
     List.for_all (fun (i, fi) -> Genarray.get arr i = fi) graph in
 
   let ba, log = with_trace @@ fun trace ->
-     Genarray.init int c_layout [|4; 2; 3; 2|]
+     Genarray.init int c_layout ~far:false [|4; 2; 3; 2|]
        (fun i -> let v = 1000*i.(0) + 100*i.(1) + 10*i.(2) + i.(3) in
                  trace (Array.copy i, v); v) in
   test 1 log [[|0;0;0;0|], 0000; [|0;0;0;1|], 0001;
@@ -916,7 +916,7 @@ let tests () =
   test 2 true (checkgen ba log);
 
   let ba, log = with_trace @@ fun trace ->
-     Genarray.init int fortran_layout [|4; 2; 3; 2|]
+     Genarray.init int fortran_layout ~far:false [|4; 2; 3; 2|]
        (fun i -> let v = 1000*i.(0) + 100*i.(1) + 10*i.(2) + i.(3) in
                  trace (Array.copy i, v); v) in
   test 3 log [[|1;1;1;1|], 1111; [|2;1;1;1|], 2111;
@@ -961,8 +961,8 @@ let tests () =
   testing_function "create/set/get";
   let test_setget kind vals =
     List.for_all (fun (v1, v2) ->
-      let ca = Array0.create kind c_layout in
-      let fa = Array0.create kind fortran_layout in
+      let ca = Array0.create kind c_layout ~far:false in
+      let fa = Array0.create kind fortran_layout ~far:false in
       Array0.set ca v1;
       Array0.set fa v1;
       Array0.get ca = v2 && Array0.get fa = v2) vals in
@@ -1061,45 +1061,45 @@ let tests () =
                   {im=3.1415;re=1.2345678}, {im=3.1415;re=1.2345678}]);
 
   testing_function "init";
-  let ba = Array0.init int c_layout 10 in
-  test 1 ba (Array0.of_value int c_layout 10);
+  let ba = Array0.init int c_layout ~far:false 10 in
+  test 1 ba (Array0.of_value int c_layout ~far:false 10);
 
-  let ba = Array0.init int fortran_layout 10 in
-  test 2 ba (Array0.of_value int fortran_layout 10);
+  let ba = Array0.init int fortran_layout ~far:false 10 in
+  test 2 ba (Array0.of_value int fortran_layout ~far:false 10);
 
-  let ba = Bigarray.(Genarray.init float64 c_layout [||] (fun _ -> 5.)) in
+  let ba = Bigarray.(Genarray.init float64 c_layout ~far:false [||] (fun _ -> 5.)) in
   test 3 5. (Bigarray.Genarray.get ba [||]);
 
-  let ba = Bigarray.(Genarray.init float64 fortran_layout [||] (fun _ -> 5.)) in
+  let ba = Bigarray.(Genarray.init float64 fortran_layout ~far:false [||] (fun _ -> 5.)) in
   test 4 5. (Bigarray.Genarray.get ba [||]);
 
 (* Kind size *)
   testing_function "kind_size_in_bytes";
-  let arr1 = Array1.create Float32 c_layout 1 in
+  let arr1 = Array1.create Float32 c_layout ~far:false 1 in
   test 1 (kind_size_in_bytes Float32) (Array1.size_in_bytes arr1);
-  let arr1 = Array1.create Float64 c_layout 1 in
+  let arr1 = Array1.create Float64 c_layout ~far:false 1 in
   test 2 (kind_size_in_bytes Float64) (Array1.size_in_bytes arr1);
-  let arr1 = Array1.create Int8_signed c_layout 1 in
+  let arr1 = Array1.create Int8_signed c_layout ~far:false 1 in
   test 3 (kind_size_in_bytes Int8_signed) (Array1.size_in_bytes arr1);
-  let arr1 = Array1.create Int8_unsigned c_layout 1 in
+  let arr1 = Array1.create Int8_unsigned c_layout ~far:false 1 in
   test 4 (kind_size_in_bytes Int8_unsigned) (Array1.size_in_bytes arr1);
-  let arr1 = Array1.create Int16_signed c_layout 1 in
+  let arr1 = Array1.create Int16_signed c_layout ~far:false 1 in
   test 5 (kind_size_in_bytes Int16_signed) (Array1.size_in_bytes arr1);
-  let arr1 = Array1.create Int16_unsigned c_layout 1 in
+  let arr1 = Array1.create Int16_unsigned c_layout ~far:false 1 in
   test 6 (kind_size_in_bytes Int16_unsigned) (Array1.size_in_bytes arr1);
-  let arr1 = Array1.create Int32 c_layout 1 in
+  let arr1 = Array1.create Int32 c_layout ~far:false 1 in
   test 7 (kind_size_in_bytes Int32) (Array1.size_in_bytes arr1);
-  let arr1 = Array1.create Int64 c_layout 1 in
+  let arr1 = Array1.create Int64 c_layout ~far:false 1 in
   test 8 (kind_size_in_bytes Int64) (Array1.size_in_bytes arr1);
-  let arr1 = Array1.create Int c_layout 1 in
+  let arr1 = Array1.create Int c_layout ~far:false 1 in
   test 9 (kind_size_in_bytes Int) (Array1.size_in_bytes arr1);
-  let arr1 = Array1.create Nativeint c_layout 1 in
+  let arr1 = Array1.create Nativeint c_layout ~far:false 1 in
   test 10 (kind_size_in_bytes Nativeint) (Array1.size_in_bytes arr1);
-  let arr1 = Array1.create Complex32 c_layout 1 in
+  let arr1 = Array1.create Complex32 c_layout ~far:false 1 in
   test 11 (kind_size_in_bytes Complex32) (Array1.size_in_bytes arr1);
-  let arr1 = Array1.create Complex64 c_layout 1 in
+  let arr1 = Array1.create Complex64 c_layout ~far:false 1 in
   test 12 (kind_size_in_bytes Complex64) (Array1.size_in_bytes arr1);
-  let arr1 = Array1.create Char c_layout 1 in
+  let arr1 = Array1.create Char c_layout ~far:false 1 in
   test 13 (kind_size_in_bytes Char) (Array1.size_in_bytes arr1);
 
 (* Reshaping *)

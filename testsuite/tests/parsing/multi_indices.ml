@@ -52,10 +52,10 @@ let (.?(;..)) = A.get;;
 val ( .?(;..) ) : ('a, 'b, 'c) A.t -> int array -> 'a = <fun>
 |}]
 
-let a = A.create Bigarray.float64 Bigarray.c_layout [|3;3;3|]
+let a = A.create Bigarray.float64 Bigarray.c_layout ~far:false [|3;3;3|]
 [%%expect {|
 
-let a = A.create Bigarray.float64 Bigarray.c_layout [|3;3;3|];;
+let a = A.create Bigarray.float64 Bigarray.c_layout ~far:false [|3;3;3|];;
 val a : (float, Bigarray.float64_elt, Bigarray.c_layout) A.t = <abstr>
 |}]
 

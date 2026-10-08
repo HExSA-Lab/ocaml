@@ -60,7 +60,7 @@ let data () = [|
   Obj.repr 0L;
   (let i = Int64.of_string "123456789123456" in Obj.repr (i,i));
   Obj.repr (Failure "fail");
-  Obj.repr Bigarray.(Array1.init int16_unsigned c_layout 5 (fun x -> 8*x))
+  Obj.repr Bigarray.(Array1.init int16_unsigned c_layout ~far:false 5 (fun x -> 8*x))
 |]
 
 (* Generate file with marshaled data *)

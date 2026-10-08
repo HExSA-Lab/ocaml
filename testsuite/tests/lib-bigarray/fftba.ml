@@ -128,8 +128,8 @@ let test np =
   print_int np; print_string "... "; flush stdout;
   let enp = float np in
   let npm = np / 2 - 1 in
-  let pxr = Array1.create float64 c_layout (np+2)
-  and pxi = Array1.create float64 c_layout (np+2) in
+  let pxr = Array1.create float64 c_layout ~far:false (np+2)
+  and pxi = Array1.create float64 c_layout ~far:false (np+2) in
   let t = pi /. enp in
   pxr.{1} <- (enp -. 1.0) *. 0.5;
   pxi.{1} <- 0.0;

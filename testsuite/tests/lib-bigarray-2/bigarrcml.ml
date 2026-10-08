@@ -38,7 +38,7 @@ external c_printtab :
 let _ =
 
   let make_array2 kind layout ind0 dim1 dim2 fromint =
-    let a = Array2.create kind layout dim1 dim2 in
+    let a = Array2.create kind layout ~far:false dim1 dim2 in
     for i = ind0 to dim1 - 1 + ind0 do
       for j = ind0 to dim2 - 1 + ind0 do
         a.{i,j} <- (fromint (i * 1000 + j))

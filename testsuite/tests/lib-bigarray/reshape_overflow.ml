@@ -3,7 +3,7 @@ open Printf
 open Bigarray
 
 let () =
-  let ba = Array1.create int c_layout 0 in
+  let ba = Array1.create int c_layout ~far:false 0 in
   match reshape (genarray_of_array1 ba) (Array.init 8 (fun _ -> 1 lsl 16)) with
   | ba ->
      printf "out of bounds read: %d\n"

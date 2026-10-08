@@ -498,7 +498,9 @@ let display_output output =
 
 let read_content file ic =
   let len = in_channel_length ic in
-  let content = Bigarray.Array1.create Bigarray.Char Bigarray.c_layout len in
+  let content = Bigarray.Array1.create Bigarray.Char Bigarray.c_layout
+    ~far:false len
+  in
   if In_channel.really_input_bigarray ic content 0 len = None then
     Harness.fail_because "Error reading %s" file;
   content, len

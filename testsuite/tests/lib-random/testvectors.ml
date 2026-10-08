@@ -6,7 +6,7 @@
 open Bigarray
 
 let _ =
-  let a = Array1.of_array Int64 C_layout [| 1L; 2L; 3L; 4L |] in
+  let a = Array1.of_array Int64 C_layout ~far:false [| 1L; 2L; 3L; 4L |] in
   (* Violate abstraction of type Random.State.t to manipulate state directly *)
   let r = (Obj.magic a : Random.State.t) in
   for i = 0 to 49 do

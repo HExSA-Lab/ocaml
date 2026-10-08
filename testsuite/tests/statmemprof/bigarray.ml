@@ -17,7 +17,7 @@ external new_bigstring : unit -> bigstring = "new_bigstring"
 external malloc_bigstring : unit -> bigstring = "malloc_bigstring"
 
 let bigstring_create sz : bigstring =
-  Bigarray.Array1.create Bigarray.char Bigarray.c_layout sz
+  Bigarray.Array1.create Bigarray.char Bigarray.c_layout ~far:false sz
 
 let keep = ref []
 

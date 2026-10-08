@@ -31,7 +31,7 @@ CAMLprim value stub_sub_right_copy(value vba, value vyoffset, value vylen)
   uintnat src_element_size = src_row_size / ba_src->dim[1];
   const char* src = ba_src->data;
 
-  res = caml_ba_alloc(ba_src->flags, sizeof(dim)/sizeof(*dim), NULL, dim);
+  res = caml_ba_alloc(ba_src->flags, sizeof(dim)/sizeof(*dim), /* far */ 0, NULL, dim);
   /* can't use ba_src anymore, may have moved */
   ba_src = NULL;
 

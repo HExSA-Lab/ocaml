@@ -62,7 +62,7 @@ module Buffer = struct
   let arg_size = 8
 
   let create ~arity : t =
-    Array1.create char c_layout ((arity + 1) * arg_size)
+    Array1.create char c_layout ~far:false ((arity + 1) * arg_size)
 
   let clear (t : t) = Array1.fill t '\000'
 

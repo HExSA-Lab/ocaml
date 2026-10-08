@@ -3,7 +3,7 @@
 let () =
   let small = 0xfffe and large = 0xffff in
   let marshalled dim =
-    let ba = Bigarray.(Array1.create int8_unsigned c_layout dim) in
+    let ba = Bigarray.(Array1.create int8_unsigned c_layout ~far:false dim) in
     Marshal.to_string ba []
   in
   (* Bigarray dimension marshalling scheme: use an extra 8 bytes

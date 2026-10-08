@@ -14,7 +14,7 @@ let sub_2d ba x0 xn y0 yn=
 
 let sub_2d_safe ba x0 xn y0 yn =
   let ba = Bigarray.Array2.sub_left ba x0 xn in
-  let copy = Bigarray.Array2.(create (kind ba) (layout ba) xn yn) in
+  let copy = Bigarray.Array2.(create (kind ba) (layout ba) ~far:false xn yn) in
   for row = 0 to xn - 1 do
     let src = Bigarray.Array2.slice_left ba row in
     let dst = Bigarray.Array2.slice_left copy row in
@@ -42,7 +42,7 @@ let sub_2d_test ba x0 xn y0 yn =
 
 let () =
   let a = Array.init_matrix 2048 64  (fun x y -> x *64 + y) in
-  let orig = Bigarray.(Array2.of_array int16_signed c_layout a) in
+  let orig = Bigarray.(Array2.of_array int16_signed c_layout ~far:false a) in
 
   sub_2d_test orig 1 2047 3 47;
   let rec loop () =

@@ -18,7 +18,7 @@ external caml_bigstring_set_64 :
       bigstring -> int -> int64 -> unit = "%caml_bigstring_set64"
 
 let bigstring_of_string s =
-  let a = Array1.create char c_layout (String.length s) in
+  let a = Array1.create char c_layout ~far:false (String.length s) in
   for i = 0 to String.length s - 1 do
     a.{i} <- s.[i]
   done;

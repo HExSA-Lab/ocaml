@@ -3,7 +3,7 @@
 let filename = "test.out"
 
 let bigarray_of_string s =
-  Bigarray.Array1.init Bigarray.char Bigarray.c_layout (String.length s)
+  Bigarray.Array1.init Bigarray.char Bigarray.c_layout ~far:false (String.length s)
     (String.get s)
 
 let string_of_bigarray buf =

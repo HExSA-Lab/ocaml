@@ -42,7 +42,7 @@ let report s test =
       errors
 
 let array =
-  let a = Array1.create kind c size in
+  let a = Array1.create kind c ~far:false size in
   for i = 0 to size - 1 do a.{i} <- float i done;
   a
 
@@ -74,7 +74,7 @@ report "Generic rank test" testG
 
 (* Scalar *)
 let scalar =
-  let a = Array0.create kind c in
+  let a = Array0.create kind c ~far:false in
   Array0.set a 0.; a
 ;;
 let test  =

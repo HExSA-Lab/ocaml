@@ -9,6 +9,6 @@ let f y0 =
   y0
 
 let _ =
-  let y = Array1.of_array float64 fortran_layout [| 1. |] in
+  let y = Array1.of_array float64 fortran_layout ~far:false [| 1. |] in
   ignore ((f y).{1});
   (f y).{1} <- 3.14

@@ -4,7 +4,7 @@ module MP = Gc.Memprof
 let () = Gc.set { (Gc.get ()) with minor_heap_size = 262144 }
 
 let bigstring_create sz =
-  Bigarray.Array1.create Bigarray.char Bigarray.c_layout sz
+  Bigarray.Array1.create Bigarray.char Bigarray.c_layout ~far:false sz
 
 let keep = ref []
 

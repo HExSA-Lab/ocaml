@@ -69,7 +69,7 @@ let special_char (a: (char, int8_unsigned_elt, c_layout) Array1.t) v0 v1 v2 =
   (a.{0}, a.{1}, a.{2})
 
 let test kind special v0 v1 v2 =
-  let a = Array1.create kind c_layout 3 in
+  let a = Array1.create kind c_layout ~far:false 3 in
   let s = special a v0 v1 v2 in
   let g = generic a v0 v1 v2 in
   assert (s = g)
