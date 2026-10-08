@@ -27,6 +27,49 @@
 
 static const mlsize_t mlsize_t_max = CAML_UINTNAT_MAX;
 
+struct far_array_entry {
+  value array;
+  struct far_array_entry *next;
+};
+
+static struct far_array_entry *far_arrays = NULL;
+
+/* Call this whenever a far array is created */
+static void register_far_array(value arr) {
+  struct far_array_entry *entry = malloc(sizeof(struct far_array_entry));
+  if (entry == NULL) {
+    /* Handle allocation failure if necessary */
+    return; 
+  }
+  
+  entry->array = arr;
+  
+  /* Tell the GC to track this specific memory address */
+  caml_register_global_root(&(entry->array));
+  
+  entry->next = far_arrays;
+  far_arrays = entry;
+}
+
+static void unregister_far_array(struct far_array_entry *entry) {
+  /* Tell the GC it is safe to collect this array */
+  caml_remove_global_root(&(entry->array));
+  free(entry);
+}
+
+/* returns true if an array is far, false if it is not */
+/* [ 'a array -> bool ] */
+CAMLprim value caml_is_far_array(value arr){
+
+  struct far_array_entry *p;
+  for (p = far_arrays; p != NULL; p = p->next) {
+    if (p->array == arr) {
+      return Val_bool(1);
+    }
+  }
+  return Val_bool(0);
+} 
+
 /* returns number of elements (either fields or floats) */
 /* [ 'a array -> int ] */
 CAMLexport mlsize_t caml_array_length(value array)
@@ -263,6 +306,18 @@ CAMLprim value caml_array_make(value len, value init)
   return caml_uniform_array_make(len, init);
 }
 
+/* [len] is a [value] representing number of words or floats */
+CAMLprim value caml_array_make_far(value far, value len, value init)
+{
+  value arr = caml_array_make(len, init);
+
+  if (Bool_val(far)) {
+    register_far_array(arr);
+  }
+
+  return arr;
+}
+
 /* [len] is a [value] representing number of floats */
 /* [ int -> float array ] */
 CAMLprim value caml_array_create_float(value len)
@@ -284,6 +339,19 @@ CAMLprim value caml_array_create_float(value len)
   value some_float = Val_hp(some_float_contents);
   return caml_array_make (len, some_float);
 #endif
+}
+
+/* [len] is a [value] representing number of floats */
+/* [ int -> float array ] */
+CAMLprim value caml_array_create_float_far(value far, value len)
+{
+  value arr = caml_array_create_float(len);
+
+  if (Bool_val(far)) {
+    register_far_array(arr);
+  }
+
+  return arr;
 }
 
 /* This primitive is used internally by the compiler to compile

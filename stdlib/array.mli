@@ -50,7 +50,10 @@ external set : 'a array -> int -> 'a -> unit = "%array_safe_set"
    @raise Invalid_argument
    if [n] is outside the range 0 to [length a - 1]. *)
 
-external make : int -> 'a -> 'a array = "caml_array_make"
+external is_far : 'a array -> bool = "caml_is_far_array"
+(** Return true if an array is on the far NUMA node, false if it is not. *)
+
+val make : ?far:bool -> int -> 'a -> 'a array
 (** [make n x] returns a fresh array of length [n],
    initialized with [x].
    All the elements of this new array are initially
@@ -63,12 +66,12 @@ external make : int -> 'a -> 'a array = "caml_array_make"
    If the value of [x] is a floating-point number, then the maximum
    size is only [Sys.max_array_length / 2].*)
 
-external create_float: int -> float array = "caml_array_create_float"
+val create_float: ?far:bool -> int -> float array
 (** [create_float n] returns a fresh float array of length [n],
     with uninitialized data.
     @since 4.03 *)
 
-val init : int -> (int -> 'a) -> 'a array
+val init : ?far:bool -> int -> (int -> 'a) -> 'a array
 (** [init n f] returns a fresh array of length [n],
    with element number [i] initialized to the result of [f i].
    In other terms, [init n f] tabulates the results of [f]
@@ -78,7 +81,7 @@ val init : int -> (int -> 'a) -> 'a array
    If the return type of [f] is [float], then the maximum
    size is only [Sys.max_array_length / 2].*)
 
-val make_matrix : int -> int -> 'a -> 'a array array
+val make_matrix : ?far:bool -> int -> int -> 'a -> 'a array array
 (** [make_matrix dimx dimy e] returns a two-dimensional array
    (an array of arrays) with first dimension [dimx] and
    second dimension [dimy]. All the elements of this new matrix
@@ -91,7 +94,8 @@ val make_matrix : int -> int -> 'a -> 'a array array
    If the value of [e] is a floating-point number, then the maximum
    size is only [Sys.max_array_length / 2]. *)
 
-val init_matrix : int -> int -> (int -> int -> 'a) -> 'a array array
+val init_matrix : ?far:bool -> int -> int
+  -> (int -> int -> 'a) -> 'a array array
 (** [init_matrix dimx dimy f] returns a two-dimensional array
    (an array of arrays)
    with first dimension [dimx] and second dimension [dimy],

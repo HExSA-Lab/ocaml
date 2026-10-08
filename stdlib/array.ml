@@ -21,9 +21,11 @@ type 'a t = 'a array
 external length : 'a array -> int = "%array_length"
 external get: 'a array -> int -> 'a = "%array_safe_get"
 external set: 'a array -> int -> 'a -> unit = "%array_safe_set"
+external is_far: 'a array -> bool = "caml_is_far_array"
 external unsafe_get: 'a array -> int -> 'a = "%array_unsafe_get"
 external unsafe_set: 'a array -> int -> 'a -> unit = "%array_unsafe_set"
-external make: int -> 'a -> 'a array = "caml_array_make"
+external make_prim: int -> 'a -> 'a array = "caml_array_make"
+external make_far_prim: far:bool -> int -> 'a -> 'a array = "caml_array_make_far"
 external unsafe_sub : 'a array -> int -> int -> 'a array = "caml_array_sub"
 external append_prim : 'a array -> 'a array -> 'a array = "caml_array_append"
 external concat : 'a array list -> 'a array = "caml_array_concat"
@@ -31,7 +33,9 @@ external unsafe_blit :
   'a array -> int -> 'a array -> int -> int -> unit = "caml_array_blit"
 external unsafe_fill :
   'a array -> int -> int -> 'a -> unit = "caml_array_fill"
-external create_float: int -> float array = "caml_array_create_float"
+external create_float_prim: int -> float array = "caml_array_create_float"
+external create_float_far_prim: far:bool -> int -> float array =
+  "caml_array_create_float_far"
 
 module Floatarray = struct
   external create : int -> floatarray = "caml_floatarray_create"
@@ -43,38 +47,50 @@ module Floatarray = struct
       = "%floatarray_unsafe_set"
 end
 
-let init l f =
+let make ?(far=false) len init =
+  if far then
+    make_far_prim ~far:true len init
+  else
+    make_prim len init
+
+let create_float ?(far=false) len =
+  if far then
+    create_float_far_prim ~far:true len
+  else
+    create_float_prim len
+
+let init ?(far=false) l f =
   if l = 0 then [||] else
   if l < 0 then invalid_arg "Array.init"
   (* See #6575. We must not evaluate [f 0] when [l <= 0].
      We could also check for maximum array size, but this depends
      on whether we create a float array or a regular one... *)
   else
-   let res = make l (f 0) in
+   let res = make ~far l (f 0) in
    for i = 1 to pred l do
      unsafe_set res i (f i)
    done;
    res
 
-let make_matrix sx sy init =
+let make_matrix ?(far=false) sx sy init =
   (* We raise even if [sx = 0 && sy < 0]: *)
   if sy < 0 then invalid_arg "Array.make_matrix";
-  let res = make sx [||] in
+  let res = make ~far sx [||] in
   if sy > 0 then begin
     for x = 0 to pred sx do
-      unsafe_set res x (make sy init)
+      unsafe_set res x (make ~far sy init)
     done;
   end;
   res
 
-let init_matrix sx sy f =
+let init_matrix ?(far=false) sx sy f =
   (* We raise even if [sx = 0 && sy < 0]: *)
   if sy < 0 then invalid_arg "Array.init_matrix";
-  let res = make sx [||] in
+  let res = make ~far sx [||] in
   (* We must not evaluate [f x 0] when [sy <= 0]: *)
   if sy > 0 then begin
     for x = 0 to pred sx do
-      let row = make sy (f x 0) in
+      let row = make ~far sy (f x 0) in
       for y = 1 to pred sy do
         unsafe_set row y (f x y)
       done;
@@ -118,9 +134,10 @@ let iter2 f a b =
     for i = 0 to length a - 1 do f (unsafe_get a i) (unsafe_get b i) done
 
 let map f a =
+  let far = is_far a in
   let l = length a in
   if l = 0 then [||] else begin
-    let r = make l (f(unsafe_get a 0)) in
+    let r = make ~far l (f(unsafe_get a 0)) in
     for i = 1 to l - 1 do
       unsafe_set r i (f(unsafe_get a i))
     done;
