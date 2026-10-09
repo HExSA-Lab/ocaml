@@ -38,7 +38,6 @@ static void read_config(void)
     config_error(EINVAL, "must be set for far allocation");
     return;
   }
-  /* Accept decimal node IDs only, without signs, whitespace, or suffixes. */
   if (*text == '\0') goto invalid;
   for (const char *p = text; *p != '\0'; p++) {
     if (*p < '0' || *p > '9') goto invalid;
