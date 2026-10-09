@@ -17,35 +17,25 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
-struct tier_config {
-  const char *name;
-  int node;
-  unsigned long *mask;
-  int error_number;
-  char error[128];
-};
-
-static struct tier_config near_config =
-  { .name = "OCAML_NEAR_NODE", .node = -1 };
-static struct tier_config far_config =
-  { .name = "OCAML_FAR_NODE", .node = -1 };
+static int far_node = -1;
+static unsigned long *far_mask;
+static int far_errno;
+static char far_error[128];
 static pthread_once_t config_once = PTHREAD_ONCE_INIT;
 static size_t page_bytes;
 static unsigned long mask_bits;
 
-static void config_error(struct tier_config *config, int number,
-                         const char *message)
+static void config_error(int number, const char *message)
 {
-  config->error_number = number;
-  snprintf(config->error, sizeof(config->error), "%s: %s",
-           config->name, message);
+  far_errno = number;
+  snprintf(far_error, sizeof(far_error), "OCAML_FAR_NODE: %s", message);
 }
 
-static void read_config(struct tier_config *config, int required)
+static void read_config(void)
 {
-  const char *text = caml_secure_getenv(config->name);
+  const char *text = caml_secure_getenv("OCAML_FAR_NODE");
   if (text == NULL) {
-    if (required) config_error(config, EINVAL, "must be set for far allocation");
+    config_error(EINVAL, "must be set for far allocation");
     return;
   }
   /* Accept decimal node IDs only, without signs, whitespace, or suffixes. */
@@ -56,11 +46,11 @@ static void read_config(struct tier_config *config, int required)
   errno = 0;
   unsigned long node = strtoul(text, NULL, 10);
   if (errno == ERANGE || node > INT_MAX) goto invalid;
-  config->node = (int)node;
+  far_node = (int)node;
   return;
 
 invalid:
-  config_error(config, EINVAL, "expected a non-negative decimal node ID");
+  config_error(EINVAL, "expected a non-negative decimal node ID");
 }
 
 static unsigned long *allowed_nodes(void)
@@ -93,55 +83,40 @@ static unsigned long *allowed_nodes(void)
 
 static void init_config(void)
 {
-  read_config(&near_config, 0);
-  read_config(&far_config, 1);
-  /* Default near allocation must work without NUMA configuration or queries. */
-  if (near_config.node < 0 && far_config.node < 0) return;
+  read_config();
+  if (far_node < 0) return;
 
   errno = 0;
   long page = sysconf(_SC_PAGESIZE);
-  int init_errno = page > 0 ? 0 : (errno != 0 ? errno : EINVAL);
-  const char *init_error = "cannot determine the system page size";
-  unsigned long *allowed = NULL;
-  if (init_errno == 0) {
-    page_bytes = (size_t)page;
-    allowed = allowed_nodes();
-    if (allowed == NULL) {
-      init_errno = errno;
-      init_error = "get_mempolicy(MPOL_F_MEMS_ALLOWED) failed";
-    }
+  if (page <= 0) {
+    config_error(errno != 0 ? errno : EINVAL,
+                 "cannot determine the system page size");
+    return;
+  }
+  page_bytes = (size_t)page;
+
+  unsigned long *allowed = allowed_nodes();
+  if (allowed == NULL) {
+    config_error(errno, "get_mempolicy(MPOL_F_MEMS_ALLOWED) failed");
+    return;
   }
 
-  struct tier_config *configs[] = { &near_config, &far_config };
   const unsigned long word_bits = sizeof(unsigned long) * CHAR_BIT;
-  for (size_t i = 0; i < 2; i++) {
-    struct tier_config *config = configs[i];
-    if (config->node < 0) continue;
-    if (init_errno != 0) {
-      config_error(config, init_errno, init_error);
-    } else if ((unsigned long)config->node >= mask_bits
-               || !(allowed[config->node / word_bits]
-                    & (1UL << (config->node % word_bits)))) {
-      config_error(config, EINVAL, "node is not an allowed memory node");
-    } else {
-      config->mask = calloc(mask_bits / word_bits, sizeof(unsigned long));
-      if (config->mask == NULL) {
-        config_error(config, ENOMEM, "cannot allocate the node mask");
-      } else {
-        config->mask[config->node / word_bits] =
-          1UL << (config->node % word_bits);
-      }
-    }
+  if ((unsigned long)far_node >= mask_bits
+      || !(allowed[far_node / word_bits] & (1UL << (far_node % word_bits)))) {
+    config_error(EINVAL, "node is not an allowed memory node");
+  } else {
+    far_mask = calloc(mask_bits / word_bits, sizeof(unsigned long));
+    if (far_mask == NULL)
+      config_error(ENOMEM, "cannot allocate the node mask");
+    else
+      far_mask[far_node / word_bits] = 1UL << (far_node % word_bits);
   }
   free(allowed);
-  /* Successful masks live for the process lifetime. No OCaml allocations or
-     exceptions occur inside this pthread_once initializer. */
 }
 
-CAMLexport void *caml_tier_alloc(size_t size, int far, int *mapped,
-                                const char **error)
+CAMLexport void *caml_tier_alloc(size_t size, const char **error)
 {
-  *mapped = 0;
   *error = NULL;
   int rc = pthread_once(&config_once, init_config);
   if (rc != 0) {
@@ -149,19 +124,13 @@ CAMLexport void *caml_tier_alloc(size_t size, int far, int *mapped,
     *error = "pthread_once";
     return NULL;
   }
-  const struct tier_config *config = far ? &far_config : &near_config;
-  if (config->error_number != 0) {
-    errno = config->error_number;
-    *error = config->error;
+  if (far_mask == NULL) {
+    errno = far_errno;
+    *error = far_error;
     return NULL;
   }
   /* A non-NULL empty buffer also prevents views from requesting allocation. */
   if (size == 0) size = 1;
-  if (config->node < 0) {
-    void *data = malloc(size);
-    if (data == NULL) *error = "malloc";
-    return data;
-  }
   *error = "size rounding";
   if (size > SIZE_MAX - (page_bytes - 1)) {
     errno = ENOMEM;
@@ -176,17 +145,15 @@ CAMLexport void *caml_tier_alloc(size_t size, int far, int *mapped,
 
   /* Bind before touching pages. Linux's get_nodes consumes maxnode - 1 bits,
      so add one here to keep the highest mask bit (get_mempolicy differs). */
-  *error = far ? "OCAML_FAR_NODE: mbind" : "OCAML_NEAR_NODE: mbind";
+  *error = "OCAML_FAR_NODE: mbind";
   if (syscall(SYS_mbind, data, mapped_bytes, MPOL_BIND,
-              (const unsigned long *)config->mask,
-              mask_bits + 1, 0UL) != 0) {
+              (const unsigned long *)far_mask, mask_bits + 1, 0UL) != 0) {
     int saved_errno = errno;
     (void)munmap(data, mapped_bytes);
     errno = saved_errno;
     return NULL;
   }
 
-  *mapped = 1;
   *error = NULL;
   return data;
 }

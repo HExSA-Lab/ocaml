@@ -220,9 +220,8 @@ CAMLnoret static void caml_ba_raise_alloc_error(const char * operation,
                                                 int err)
 {
   char buf[128];
-  if (strcmp(operation, "malloc") == 0
-      || (err == ENOMEM && (strcmp(operation, "mmap") == 0
-                            || strcmp(operation, "size rounding") == 0)))
+  if (err == ENOMEM && (strcmp(operation, "mmap") == 0
+                        || strcmp(operation, "size rounding") == 0))
     caml_raise_out_of_memory();
   caml_failwith_value(caml_alloc_sprintf("Bigarray.create: %s: %s", operation,
                                          caml_strerror(err, buf, sizeof(buf))));
@@ -230,8 +229,8 @@ CAMLnoret static void caml_ba_raise_alloc_error(const char * operation,
 
 /* [caml_ba_alloc] will allocate a new bigarray object in the heap.
    If [data] is NULL, the memory for the contents is also allocated
-   by [caml_ba_alloc], with [caml_tier_alloc]: [far] selects near or far
-   memory (see tier_alloc.h). [far] is ignored when [data] is not NULL.
+   by [caml_ba_alloc]: with [malloc], or with [caml_tier_alloc] if [far]
+   is set. [far] is ignored when [data] is not NULL.
    [data] cannot point into the OCaml heap.
    [dim] may point into an object in the OCaml heap.
 */
@@ -240,6 +239,7 @@ caml_ba_alloc(int flags, int num_dims, int far, void * data, intnat * dim)
 {
   uintnat num_elts, asize, size;
   int uses_resources;
+  int far_alloc = data == NULL && far;
   value res;
   struct caml_ba_array * b;
   intnat dimcopy[CAML_BA_MAX_NUM_DIMS];
@@ -259,6 +259,10 @@ caml_ba_alloc(int flags, int num_dims, int far, void * data, intnat * dim)
     caml_raise_out_of_memory();
 
   if (data == NULL) {
+    if (!far_alloc) {
+      data = malloc(size);
+      if (data == NULL && size != 0) caml_raise_out_of_memory();
+    }
     flags |= CAML_BA_MANAGED;
     /* backwards compatibility with C bindings that pass through flags */
     flags &= ~(CAML_BA_SUBARRAY | CAML_BA_TIER_ALLOCATED);
@@ -277,17 +281,16 @@ caml_ba_alloc(int flags, int num_dims, int far, void * data, intnat * dim)
   b->flags = flags;
   b->proxy = NULL;
   for (int i = 0; i < num_dims; i++) b->dim[i] = dimcopy[i];
-  /* Allocate new data only once the descriptor exists, so a failed
+  /* Allocate far data only once the descriptor exists, so a failed
      descriptor allocation cannot leak it. Until then [b->data] is NULL,
      which finalization releases as nothing. No OCaml allocation happens
      between here and the assignments below, so [b] stays valid. */
-  if (data == NULL) {
-    int mapped;
+  if (far_alloc) {
     const char * operation;
-    data = caml_tier_alloc(size, far, &mapped, &operation);
+    data = caml_tier_alloc(size, &operation);
     if (data == NULL) caml_ba_raise_alloc_error(operation, errno);
     b->data = data;
-    if (mapped) b->flags |= CAML_BA_TIER_ALLOCATED;
+    b->flags |= CAML_BA_TIER_ALLOCATED;
   }
   return res;
 }

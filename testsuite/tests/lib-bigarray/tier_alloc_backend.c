@@ -1,51 +1,32 @@
-/* Standalone tier allocator checks. Run from a configured project root on Linux
-   (run ./configure first if needed). Supply nodes accessible to this process;
-   the examples below use near node 0 and far node 1.
+/* Run from a configured project root on Linux. Replace node 1 with an
+   accessible memory node where needed. Each command starts a fresh process.
 
-   The test supplies caml_secure_getenv so it can link without the whole runtime.
-
-   cc -std=c11 -Wall -Wextra -Werror -pthread -Iruntime \
-     runtime/tier_alloc.c testsuite/tests/lib-bigarray/tier_alloc_backend.c \
-     -o /tmp/tier_alloc_backend
-   env -u OCAML_NEAR_NODE -u OCAML_FAR_NODE /tmp/tier_alloc_backend default
-   env -u OCAML_NEAR_NODE OCAML_FAR_NODE=1 \
-     numactl --cpunodebind=0 --membind=0 /tmp/tier_alloc_backend bound -1 1
-   OCAML_NEAR_NODE=0 OCAML_FAR_NODE=1 /tmp/tier_alloc_backend bound 0 1
-   OCAML_NEAR_NODE=0 OCAML_FAR_NODE=0 /tmp/tier_alloc_backend bound 0 0
-   OCAML_NEAR_NODE=0 OCAML_FAR_NODE=1 /tmp/tier_alloc_backend threads 0 1
-
-   Each command starts a fresh process because configuration is read once.
-   Reject checks take the failing tier (0=near, 1=far) and the other tier's
-   expected node (-1 means malloc). Repeat for malformed/unavailable node IDs:
-
-   env -u OCAML_NEAR_NODE OCAML_FAR_NODE=invalid \
-     /tmp/tier_alloc_backend reject 1 -1
-   OCAML_NEAR_NODE=invalid OCAML_FAR_NODE=1 \
-     /tmp/tier_alloc_backend reject 0 1
-
-   Failure injection and simulated nodes use GNU linker wrappers confined
-   to this executable. No machine-wide settings are changed:
+   cc -std=c11 -Wall -Wextra -Werror -pthread -Iruntime runtime/tier_alloc.c \
+     testsuite/tests/lib-bigarray/tier_alloc_backend.c -o t
+   OCAML_FAR_NODE=1 ./t bound 1
+   OCAML_FAR_NODE=1 ./t threads 1
+   env -u OCAML_FAR_NODE ./t missing
+   OCAML_FAR_NODE=invalid ./t missing
 
    cc -std=c11 -Wall -Wextra -Werror -pthread -DTIER_ALLOC_TEST_FAILURES \
-     -Iruntime runtime/tier_alloc.c \
-     testsuite/tests/lib-bigarray/tier_alloc_backend.c \
-     -Wl,--wrap=mmap,--wrap=munmap,--wrap=syscall -o /tmp/tier_alloc_failures
-   env -u OCAML_NEAR_NODE -u OCAML_FAR_NODE /tmp/tier_alloc_failures default
-   env -u OCAML_NEAR_NODE OCAML_FAR_NODE=1 /tmp/tier_alloc_failures failures
-   env -u OCAML_NEAR_NODE OCAML_FAR_NODE=1 /tmp/tier_alloc_failures query-failure
-   env -u OCAML_NEAR_NODE OCAML_FAR_NODE=1 /tmp/tier_alloc_failures query-limit
-   env -u OCAML_NEAR_NODE OCAML_FAR_NODE=63 /tmp/tier_alloc_failures wide-mask
-   env -u OCAML_NEAR_NODE OCAML_FAR_NODE=65 /tmp/tier_alloc_failures wide-mask
-   env -u OCAML_NEAR_NODE OCAML_FAR_NODE=127 /tmp/tier_alloc_failures wide-mask
+     -Iruntime runtime/tier_alloc.c testsuite/tests/lib-bigarray/tier_alloc_backend.c \
+     -Wl,--wrap=mmap,--wrap=munmap,--wrap=syscall -o f
+   OCAML_FAR_NODE=1 ./f failures
+   OCAML_FAR_NODE=1 ./f query-failure
+   OCAML_FAR_NODE=1 ./f query-limit
+
+   The wide-mask checks simulate these node IDs:
+   OCAML_FAR_NODE=63 ./f wide-mask
+   OCAML_FAR_NODE=65 ./f wide-mask
+   OCAML_FAR_NODE=127 ./f wide-mask
 */
 
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
 #ifndef __linux__
-#error "Run the tier allocator checks on Linux (CloudLab)."
+#error "Run the tier allocator checks on Linux."
 #endif
-/* Keep test actions and checks active even when compiled with -DNDEBUG. */
 #ifdef NDEBUG
 #undef NDEBUG
 #endif
@@ -102,7 +83,7 @@ int __wrap_munmap(void *addr, size_t length)
   assert((length + page - 1) / page * page == last_length);
   unmappings++;
   int result = __real_munmap(addr, length);
-  errno = EIO; /* Binding failures must preserve their original errno. */
+  errno = EIO;
   return result;
 }
 
@@ -145,8 +126,6 @@ long __wrap_syscall(long number, ...)
   assert(mode == MPOL_BIND && flags == 0);
   if (wide_mask) {
     size_t word_bits = sizeof(unsigned long) * CHAR_BIT;
-    /* Linux get_nodes consumes maxnode - 1 bits, unlike get_mempolicy.
-       Reject a selected bit outside that range, as the real kernel would. */
     if (bits == 0 || simulated_node >= bits - 1
         || !(mask[simulated_node / word_bits]
              & (1UL << (simulated_node % word_bits)))) {
@@ -163,22 +142,13 @@ int main(int argc, char **argv)
 {
   assert(argc == 2);
   const char *error;
-  int mapped = -1;
-  if (strcmp(argv[1], "default") == 0) {
-    void *data = caml_tier_alloc(32, 0, &mapped, &error);
-    assert(data != NULL && mapped == 0 && error == NULL);
-    free(data);
-    assert(queries == 0 && mappings == 0 && bindings == 0 && unmappings == 0);
-    puts("tier allocator: default near uses malloc without NUMA calls");
-    return 0;
-  }
   if (strcmp(argv[1], "query-failure") == 0) query_error = EPERM;
   if (strcmp(argv[1], "query-limit") == 0) query_error = EINVAL;
   wide_mask = strcmp(argv[1], "wide-mask") == 0;
   if (wide_mask) simulated_node = strtoul(getenv("OCAML_FAR_NODE"), NULL, 10);
   if (query_error) {
-    assert(caml_tier_alloc(1, 1, &mapped, &error) == NULL);
-    assert(mapped == 0 && errno == query_error && strstr(error, "OCAML_FAR_NODE"));
+    assert(caml_tier_alloc(1, &error) == NULL);
+    assert(errno == query_error && strstr(error, "OCAML_FAR_NODE"));
     assert(mappings == 0);
     if (query_error == EINVAL) {
       unsigned long limit = (unsigned long)sysconf(_SC_PAGESIZE) * CHAR_BIT;
@@ -190,143 +160,108 @@ int main(int argc, char **argv)
     } else {
       assert(queries == 1);
     }
-    void *data = caml_tier_alloc(1, 0, &mapped, &error);
-    assert(data != NULL && mapped == 0 && error == NULL);
-    free(data);
-    puts("tier allocator: bounded failed NUMA queries preserve default near");
+    puts("tier allocator: failed node query reported");
     return 0;
   }
   if (wide_mask) {
-    void *data = caml_tier_alloc(1, 1, &mapped, &error);
-    assert(data != NULL && mapped == 1 && error == NULL && queries >= 1);
+    void *data = caml_tier_alloc(1, &error);
+    assert(data != NULL && error == NULL && queries >= 1);
     assert(last_length == (size_t)sysconf(_SC_PAGESIZE));
     caml_tier_free(data, 1);
     assert(unmappings == 1);
-    printf("tier allocator: simulated node %lu and header-free mapping passed\n",
-           simulated_node);
+    printf("tier allocator: simulated node %lu passed\n", simulated_node);
     return 0;
   }
   assert(strcmp(argv[1], "failures") == 0);
-  assert(caml_tier_alloc(SIZE_MAX, 1, &mapped, &error) == NULL);
-  assert(mapped == 0 && errno == ENOMEM && strcmp(error, "size rounding") == 0);
+  assert(caml_tier_alloc(SIZE_MAX, &error) == NULL);
+  assert(errno == ENOMEM && strcmp(error, "size rounding") == 0);
   assert(mappings == 0);
   fail_mapping = 1;
-  assert(caml_tier_alloc(1, 1, &mapped, &error) == NULL);
-  assert(mapped == 0 && errno == ENOMEM && strcmp(error, "mmap") == 0);
+  assert(caml_tier_alloc(1, &error) == NULL);
+  assert(errno == ENOMEM && strcmp(error, "mmap") == 0);
   assert(mappings == 1 && bindings == 0 && unmappings == 0);
   fail_mapping = 0;
   for (int i = 0; i < 2; i++) {
     bind_error = i == 0 ? EPERM : ENOMEM;
-    assert(caml_tier_alloc(1, 1, &mapped, &error) == NULL);
-    assert(mapped == 0 && errno == bind_error && strstr(error, "mbind"));
+    assert(caml_tier_alloc(1, &error) == NULL);
+    assert(errno == bind_error && strstr(error, "mbind"));
     assert(last_length == (size_t)sysconf(_SC_PAGESIZE));
     unsigned char residency;
     assert(mincore(last_base, 1, &residency) == -1 && errno == ENOMEM);
   }
   assert(mappings == 3 && bindings == 2 && unmappings == 2);
-  puts("tier allocator: overflow and mapping/binding failure cleanup passed");
+  puts("tier allocator: overflow, mmap and mbind failures passed");
   return 0;
 }
 
 #else
 
-static void check_buffer(size_t size, int far, int expected_node,
-                          int check_unmapped)
+static void check_buffer(size_t size, int node, int check_released)
 {
   const char *error;
-  int mapped = -1;
-  unsigned char *data = caml_tier_alloc(size, far, &mapped, &error);
+  unsigned char *data = caml_tier_alloc(size, &error);
   if (data == NULL) {
-    fprintf(stderr, "far=%d size=%zu: %s: %s\n", far, size,
-            error, strerror(errno));
+    fprintf(stderr, "size=%zu: %s: %s\n", size, error, strerror(errno));
     abort();
   }
-  assert(error == NULL && mapped == (expected_node >= 0));
+  assert(error == NULL);
   size_t bytes = size == 0 ? 1 : size;
   memset(data, 0x5a, bytes);
   assert(data[0] == 0x5a && data[bytes - 1] == 0x5a);
-  if (mapped) {
-    size_t page = (size_t)sysconf(_SC_PAGESIZE);
-    assert((uintptr_t)data % page == 0);
-    for (size_t offset = 0; offset < bytes; offset += page) {
-      int node = -1;
-      assert(syscall(SYS_get_mempolicy, &node, NULL, 0UL, data + offset,
-                     (unsigned long)(MPOL_F_NODE | MPOL_F_ADDR)) == 0);
-      assert(node == expected_node);
-    }
-    caml_tier_free(data, size);
-    /* Concurrent allocations can reuse this address immediately after free. */
-    if (check_unmapped) {
-      unsigned char residency;
-      for (size_t offset = 0; offset < bytes; offset += page)
-        assert(mincore(data + offset, 1, &residency) == -1 && errno == ENOMEM);
-    }
-  } else {
-    free(data);
+  size_t page = (size_t)sysconf(_SC_PAGESIZE);
+  assert((uintptr_t)data % page == 0);
+  for (size_t offset = 0; offset < bytes; offset += page) {
+    int actual = -1;
+    assert(syscall(SYS_get_mempolicy, &actual, NULL, 0UL, data + offset,
+                   (unsigned long)(MPOL_F_NODE | MPOL_F_ADDR)) == 0);
+    assert(actual == node);
+  }
+  caml_tier_free(data, size);
+  if (check_released) {
+    unsigned char residency;
+    for (size_t offset = 0; offset < bytes; offset += page)
+      assert(mincore(data + offset, 1, &residency) == -1 && errno == ENOMEM);
   }
 }
 
 static void *allocate_thread(void *arg)
 {
-  const int *nodes = arg;
-  for (int i = 0; i < 12; i++) {
-    for (int far = 0; far < 2; far++)
-      check_buffer(37 + i, far, nodes[far], 0);
-  }
+  int node = *(const int *)arg;
+  for (int i = 0; i < 12; i++) check_buffer(37 + i, node, 0);
   return NULL;
 }
 
 int main(int argc, char **argv)
 {
   assert(argc >= 2);
-  const size_t sizes[] = {0, 1, 4095, 4096, 4097, 2 * 1024 * 1024 + 13};
-  if (strcmp(argv[1], "default") == 0) {
-    for (size_t i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++)
-      check_buffer(sizes[i], 0, -1, 1);
-    /* Environment changes after the first allocation do not change policy. */
-    assert(setenv("OCAML_NEAR_NODE", "invalid", 1) == 0);
+  if (strcmp(argv[1], "missing") == 0) {
+    const char *error;
+    assert(caml_tier_alloc(1, &error) == NULL);
+    assert(errno == EINVAL && strstr(error, "OCAML_FAR_NODE"));
     assert(setenv("OCAML_FAR_NODE", "0", 1) == 0);
-    check_buffer(1, 0, -1, 1);
-    const char *error;
-    int mapped;
-    assert(caml_tier_alloc(1, 1, &mapped, &error) == NULL);
-    assert(mapped == 0 && errno == EINVAL && strstr(error, "OCAML_FAR_NODE"));
-    puts("tier allocator: default near, missing far, and fixed configuration passed");
+    assert(caml_tier_alloc(1, &error) == NULL);
+    puts("tier allocator: bad far node rejected");
     return 0;
   }
-  assert(argc == 4);
-  if (strcmp(argv[1], "reject") == 0) {
-    int far = atoi(argv[2]), mapped;
-    const char *error;
-    assert(caml_tier_alloc(1, far, &mapped, &error) == NULL);
-    assert(mapped == 0 && errno == EINVAL);
-    assert(strstr(error, far ? "OCAML_FAR_NODE" : "OCAML_NEAR_NODE"));
-    check_buffer(1, !far, atoi(argv[3]), 1);
-    printf("tier allocator: rejected %s without breaking the other tier\n",
-           far ? "OCAML_FAR_NODE" : "OCAML_NEAR_NODE");
-    return 0;
-  }
-  int nodes[] = { atoi(argv[2]), atoi(argv[3]) };
+  assert(argc == 3);
+  int node = atoi(argv[2]);
   if (strcmp(argv[1], "threads") == 0) {
     pthread_t threads[8];
     for (size_t i = 0; i < 8; i++)
-      assert(pthread_create(&threads[i], NULL, allocate_thread, nodes) == 0);
+      assert(pthread_create(&threads[i], NULL, allocate_thread, &node) == 0);
     for (size_t i = 0; i < 8; i++)
       assert(pthread_join(threads[i], NULL) == 0);
-    puts("tier allocator: concurrent first allocations and placement passed");
-  } else {
-    assert(strcmp(argv[1], "bound") == 0);
-    for (int far = 0; far < 2; far++) {
-      for (size_t i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++)
-        check_buffer(sizes[i], far, nodes[far], 1);
-    }
-    assert(setenv("OCAML_NEAR_NODE", "invalid", 1) == 0);
-    assert(setenv("OCAML_FAR_NODE", "invalid", 1) == 0);
-    check_buffer(1, 0, nodes[0], 1);
-    check_buffer(1, 1, nodes[1], 1);
-    caml_tier_free(NULL, 0);
-    puts("tier allocator: allocation, placement, release, and fixed configuration passed");
+    puts("tier allocator: concurrent first allocations passed");
+    return 0;
   }
+  assert(strcmp(argv[1], "bound") == 0);
+  const size_t sizes[] = {0, 1, 4095, 4096, 4097, 2 * 1024 * 1024 + 13};
+  for (size_t i = 0; i < sizeof(sizes) / sizeof(sizes[0]); i++)
+    check_buffer(sizes[i], node, 1);
+  assert(setenv("OCAML_FAR_NODE", "invalid", 1) == 0);
+  check_buffer(1, node, 1);
+  caml_tier_free(NULL, 0);
+  puts("tier allocator: placement and release passed");
   return 0;
 }
 

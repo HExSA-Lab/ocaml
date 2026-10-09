@@ -5,27 +5,14 @@
 
 #include "misc.h"
 
-/* Linux allocation policy, read once on the first call (safe across domains):
-   - far == 0, OCAML_NEAR_NODE unset: ordinary malloc, *mapped = 0.
-   - far == 0, OCAML_NEAR_NODE set: mmap + mbind to that node, *mapped = 1.
-   - far != 0: mmap + mbind to OCAML_FAR_NODE, *mapped = 1. This variable must
-     be set for far allocations; missing/invalid far settings do not break
-     default near allocations. Node IDs are non-negative decimal integers.
-   The same near and far node is allowed. Configuration is fixed for the process
-   lifetime; launch with numactl to select the default malloc/heap policy.
-
-   Zero bytes still returns a non-NULL, releasable buffer on success.
+/* Far-memory buffers: mmap + mbind to the node in OCAML_FAR_NODE, which is read
+   once on the first call. Zero bytes still returns a releasable buffer.
    On failure, return NULL, set errno, and set *error to a static string naming
-   the failed operation or environment variable, and set *mapped = 0.
-   On success, set *error to NULL. mapped and error must both be non-NULL.
-   These functions neither allocate OCaml values nor raise OCaml exceptions. */
-CAMLextern void *caml_tier_alloc(size_t size, int far, int *mapped,
-                                const char **error);
+   the failed step. These functions neither allocate OCaml values nor raise. */
+CAMLextern void *caml_tier_alloc(size_t size, const char **error);
 
-/* Release only buffers returned with *mapped = 1; use ordinary free otherwise.
-   data must be NULL or the original mapping address, never a slice's interior
-   pointer. size must be the original allocation's logical byte size, including
-   zero for an empty buffer. The backend stores no per-buffer header. */
+/* data is the pointer returned by caml_tier_alloc and size its original
+   logical byte size. */
 CAMLextern void caml_tier_free(void *data, size_t size);
 
 #endif /* CAML_INTERNALS */
