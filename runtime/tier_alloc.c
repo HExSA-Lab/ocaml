@@ -1,20 +1,8 @@
-/**************************************************************************/
-/*                                                                        */
-/*                                 OCaml                                  */
-/*                                                                        */
-/*   Copyright 2026 Plabon Dutta.                                          */
-/*                                                                        */
-/*   All rights reserved.  This file is distributed under the terms of    */
-/*   the GNU Lesser General Public License version 2.1, with the          */
-/*   special exception on linking described in the file LICENSE.          */
-/*                                                                        */
-/**************************************************************************/
-
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
 #ifndef __linux__
-#error "The near/far allocator requires Linux; build and run it on CloudLab."
+#error "The near/far allocator requires Linux."
 #endif
 #define CAML_INTERNALS
 
