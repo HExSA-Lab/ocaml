@@ -22,6 +22,8 @@ defaults:
 
 jobs:
   config:
+    # Windows builds are disabled for this Linux-only fork.
+    if: ${{ false }}
     runs-on: ubuntu-latest
     outputs:
       matrix: ${{ steps.matrix.outputs.result}}

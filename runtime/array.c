@@ -48,14 +48,14 @@ static void register_far_array(value arr) {
   struct far_array_entry *entry = malloc(sizeof(struct far_array_entry));
   if (entry == NULL) {
     /* Handle allocation failure if necessary */
-    return; 
+    return;
   }
-  
+
   entry->array = arr;
-  
+
   /* Tell the GC to track this specific memory address */
   caml_register_global_root(&(entry->array));
-  
+
   entry->next = far_arrays;
   far_arrays = entry;
 }
@@ -77,7 +77,7 @@ CAMLprim value caml_is_far_array(value arr){
     }
   }
   return Val_bool(0);
-} 
+}
 
 /* returns number of elements (either fields or floats) */
 /* [ 'a array -> int ] */
@@ -333,7 +333,8 @@ CAMLprim value caml_array_make_far(value far, value len, value init)
   header_t *hp = numa_alloc_onnode(bytes, node);
   if (hp == NULL) caml_raise_out_of_memory();
 
-  /* Manually write the OCaml Out-of-Heap block header (Tag 0 is a standard array) */
+  /* Manually write the OCaml Out-of-Heap block header.
+     Tag 0 is a standard array. */
   *hp = Caml_out_of_heap_header(wosize, 0);
 
   /* Step past the header to get the OCaml value pointer */

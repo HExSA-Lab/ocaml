@@ -11,6 +11,10 @@ on:
 # Restrict the GITHUB_TOKEN
 permissions: {}
 
+env:
+  LIBS: "-lnuma"
+  LDFLAGS: "-Wl,--no-as-needed -lnuma"
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -94,6 +98,12 @@ jobs:
 
       - name: Check that labelled/unlabelled .mli files are in sync
         run: tools/ci/actions/check-labelled-interfaces.sh
+        if: always()
+
+      - name: NUMA dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnuma-dev
         if: always()
 
         # This step records the build success in the variable build-status,
