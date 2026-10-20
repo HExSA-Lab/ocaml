@@ -315,12 +315,25 @@ CAMLprim value caml_array_make(value len, value init)
   return caml_uniform_array_make(len, init);
 }
 
+CAMLprim value caml_array_create_float_far(value far, value len);
+
 /* [len] is a [value] representing number of words or floats */
 CAMLprim value caml_array_make_far(value far, value len, value init)
 {
   if (!Bool_val(far)) {
     return caml_array_make(len, init);
   }
+
+#ifdef FLAT_FLOAT_ARRAY
+  if (Is_block(init) && Tag_val(init) == Double_tag) {
+    mlsize_t size = Long_val(len);
+    double d = Double_val(init);
+    value arr = caml_array_create_float_far(far, len);
+    for (mlsize_t i = 0; i < size; i++)
+      Store_double_flat_field(arr, i, d);
+    return arr;
+  }
+#endif
 
   mlsize_t wosize = Long_val(len);
   if (wosize == 0) return Atom(0);
