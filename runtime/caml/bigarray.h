@@ -72,10 +72,15 @@ enum caml_ba_subarray {
   CAML_BA_SUBARRAY = 0x800     /* Data is shared with another bigarray */
 };
 
+enum caml_ba_tier {
+  CAML_BA_TIER_ALLOCATED = 0x1000 /* Managed data is mapped by tier_alloc.c */
+};
+
 struct caml_ba_proxy {
   atomic_uintnat refcount;      /* Reference count */
   void * data;                  /* Pointer to base of actual data */
-  uintnat size;                 /* Size of data in bytes (if mapped file) */
+  uintnat size;                 /* Size of data in bytes (if mapped file
+                                   or CAML_BA_TIER_ALLOCATED) */
 };
 
 struct caml_ba_array {
