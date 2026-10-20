@@ -621,6 +621,9 @@ OCaml 5.5.0 (19 June 2026)
 
 ### Build system:
 
+- Install and link libnuma in Linux CI, and disable the default macOS and
+  Windows builds for this Linux-only fork.
+
 - #13705, #14444: Cache test results of custom Autoconf tests from aclocal.m4.
   (Antonin Décimo, review by David Allsopp and Miod Vallat)
 

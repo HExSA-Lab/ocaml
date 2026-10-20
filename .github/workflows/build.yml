@@ -12,6 +12,8 @@ on:
 permissions: {}
 
 env:
+  LIBS: "-lnuma"
+  LDFLAGS: "-Wl,--no-as-needed -lnuma"
   # List of test directories for the debug-s4096 and linux-O0 jobs. These
   # directories are selected because of their tendencies to reach corner cases
   # in the runtime system.
@@ -42,6 +44,10 @@ jobs:
         uses: actions/checkout@v5
         with:
           persist-credentials: false
+      - name: NUMA dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnuma-dev
       - name: Check for manual changes
         id: manual
         run: >-
@@ -106,10 +112,9 @@ jobs:
           tar --zstd -xf sources.tar.zstd
           rm -f sources.tar.zstd
       - name: Packages
-        if: matrix.dependencies != ''
         run: |
           sudo apt-get update -y
-          sudo apt-get install -y ${{ matrix.dependencies }}
+          sudo apt-get install -y libnuma-dev ${{ matrix.dependencies }}
       - name: Run the testsuite
         if: ${{ matrix.id == 'normal' && needs.config.outputs.skip-testsuite != 'true' }}
         run: |
@@ -221,7 +226,7 @@ jobs:
                    'test-in-prefix': true}]);
               }
             }
-            return jobs;
+            return jobs.filter(job => !job.os.startsWith('macos-'));
       - name: Determine if the testsuite should be skipped
         id: skip
         uses: actions/github-script@v7
@@ -261,6 +266,11 @@ jobs:
           # Select latest supported version
           sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
           lldb --version
+      - name: NUMA dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libnuma-dev
       - name: configure tree
         run: |
           CONFIG_ARG='--enable-codegen-invariants ${{ matrix.config_arg }}' MAKE_ARG=-j bash -xe tools/ci/actions/runner.sh configure
@@ -303,7 +313,7 @@ jobs:
       - name: OS Dependencies
         run: |
           apt-get update -y
-          apt-get install -y git gcc g++ make parallel
+          apt-get install -y git gcc g++ make parallel libnuma-dev
           adduser --disabled-password --gecos '' ocaml
       - name: Checkout
         # See https://github.com/actions/checkout/issues/334

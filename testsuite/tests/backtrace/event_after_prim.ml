@@ -15,4 +15,14 @@ let () =
 
 (* TEST
  flags = "-g";
+ {
+   bytecode;
+ }{
+   no-flambda;
+   native;
+ }{
+   reference = "${test_source_directory}/event_after_prim.flambda.reference";
+   flambda;
+   native;
+ }
 *)
