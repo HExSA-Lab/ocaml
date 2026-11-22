@@ -1221,6 +1221,7 @@ runtime_COMMON_C_SOURCES = \
   dynlink \
   extern \
   fail \
+  far_heap \
   fiber \
   finalise \
   floats \

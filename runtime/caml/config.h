@@ -247,6 +247,18 @@ typedef uintptr_t uintnat;
 /* Default size of runtime_events ringbuffers, in words, in powers of two */
 #define Default_runtime_events_log_wsize 16
 
+/* Default NUMA node backing far memory (OCAMLRUNPARAM=N). */
+#define Far_numa_node_def 1
+
+/* Default size of the far memory virtual reservation, in bytes
+   (OCAMLRUNPARAM=F). Only virtual address space; pages are faulted in on
+   demand. */
+#ifdef ARCH_SIXTYFOUR
+#define Far_region_bsz_def ((uintnat)64 * 1024 * 1024 * 1024)
+#else
+#define Far_region_bsz_def ((uintnat)256 * 1024 * 1024)
+#endif
+
 /* Assumed size of cache line. This value can be bigger than the actual L1
    cache line size. Atomics allocated with aligned constructor are
    memory-aligned this value to avoid false sharing of cache line. */
