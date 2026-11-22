@@ -58,6 +58,9 @@ struct caml_params {
   uintnat cleanup_on_exit;
   uintnat event_trace;
   uintnat max_domains;
+
+  uintnat far_numa_node;  /* NUMA node backing far memory */
+  uintnat far_region_bsz; /* size of the far region reservation */
 };
 
 extern const struct caml_params* const caml_params;

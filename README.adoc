@@ -51,6 +51,21 @@ To link OCaml with `libnuma`, configure like so:
 `LIBS="-lnuma" LDFLAGS="-lnuma" ./configure`. Now you can build as normal and
 run programs that make use of the `far` parameter.
 
+=== Choosing the far NUMA node
+
+By default, arrays created with `~far:true` (and the objects they point to)
+are allocated on NUMA node 1. To use a different node, set the `N` parameter
+in `OCAMLRUNPARAM` when you run the program, for example:
+
+----
+OCAMLRUNPARAM='N=0' ./my_program
+----
+
+The runtime reads this setting once at startup. It works for both native and
+bytecode executables, so you don't need to recompile. If the requested node
+doesn't exist, or libnuma reports that NUMA isn't available, the runtime falls
+back to node 0.
+
 == Overview
 
 OCaml is a functional, statically-typed programming language from the
