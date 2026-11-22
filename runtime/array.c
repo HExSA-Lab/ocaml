@@ -17,66 +17,30 @@
 
 /* Operations on arrays */
 #include <string.h>
-#include <numa.h>
 #include "caml/alloc.h"
 #include "caml/fail.h"
+#include "caml/far_heap.h"
 #include "caml/memory.h"
+#include "caml/minor_gc.h"
 #include "caml/misc.h"
 #include "caml/mlvalues.h"
 #include "caml/signals.h"
 #include "caml/runtime_events.h"
 
-#define TARGET_FAR_NUMA_NODE 1
-
-static int get_far_node() {
-  if (numa_available() < 0) return 0;
-  int max = numa_max_node();
-  return (TARGET_FAR_NUMA_NODE <= max) ? TARGET_FAR_NUMA_NODE : 0;
-}
-
 static const mlsize_t mlsize_t_max = CAML_UINTNAT_MAX;
 
-struct far_array_entry {
-  value array;
-  struct far_array_entry *next;
-};
-
-static struct far_array_entry *far_arrays = NULL;
-
-/* Call this whenever a far array is created */
-static void register_far_array(value arr) {
-  struct far_array_entry *entry = malloc(sizeof(struct far_array_entry));
-  if (entry == NULL) {
-    /* Handle allocation failure if necessary */
-    return;
-  }
-
-  entry->array = arr;
-
-  /* Tell the GC to track this specific memory address */
-  caml_register_global_root(&(entry->array));
-
-  entry->next = far_arrays;
-  far_arrays = entry;
-}
-
-static void unregister_far_array(struct far_array_entry *entry) {
-  /* Tell the GC it is safe to collect this array */
-  caml_remove_global_root(&(entry->array));
-  free(entry);
+/* returns true if a value is a block in far memory */
+/* [ 'a -> bool ] */
+CAMLprim value caml_is_far_value(value v)
+{
+  return Val_bool(Is_block(v) && Is_far_addr((void*)v));
 }
 
 /* returns true if an array is far, false if it is not */
 /* [ 'a array -> bool ] */
-CAMLprim value caml_is_far_array(value arr){
-
-  struct far_array_entry *p;
-  for (p = far_arrays; p != NULL; p = p->next) {
-    if (p->array == arr) {
-      return Val_bool(1);
-    }
-  }
-  return Val_bool(0);
+CAMLprim value caml_is_far_array(value arr)
+{
+  return caml_is_far_value(arr);
 }
 
 /* returns number of elements (either fields or floats) */
@@ -317,51 +281,58 @@ CAMLprim value caml_array_make(value len, value init)
 
 CAMLprim value caml_array_create_float_far(value far, value len);
 
+/* Far arrays are ordinary major-heap blocks allocated in the far sub-heap
+   (see caml/far_heap.h): the GC marks, sweeps and compacts around them
+   like any other block, and never moves them out of far memory. */
+
 /* [len] is a [value] representing number of words or floats */
 CAMLprim value caml_array_make_far(value far, value len, value init)
 {
+  CAMLparam3 (far, len, init);
+  CAMLlocal1 (res);
+  mlsize_t size;
+
   if (!Bool_val(far)) {
-    return caml_array_make(len, init);
+    CAMLreturn (caml_array_make(len, init));
   }
+
+  size = Long_val(len);
 
 #ifdef FLAT_FLOAT_ARRAY
   if (Is_block(init) && Tag_val(init) == Double_tag) {
-    mlsize_t size = Long_val(len);
     double d = Double_val(init);
-    value arr = caml_array_create_float_far(far, len);
+    res = caml_array_create_float_far(far, len);
     for (mlsize_t i = 0; i < size; i++)
-      Store_double_flat_field(arr, i, d);
-    return arr;
+      Store_double_flat_field(res, i, d);
+    CAMLreturn (res);
   }
 #endif
 
-  mlsize_t wosize = Long_val(len);
-  if (wosize == 0) return Atom(0);
+  if (size == 0) CAMLreturn (Atom(0));
+  if (size > Max_wosize) caml_invalid_argument("Array.make");
 
-  /* Calculate size in bytes: (length + 1 for the header) * word size */
-  size_t bytes = (wosize + 1) * sizeof(value);
+  res = caml_alloc_shr_far(size, 0);
+  /* Make the block well-formed before anything can trigger a GC. */
+  for (mlsize_t i = 0; i < size; i++) Field(res, i) = Val_unit;
 
-  /* Allocate raw memory directly on the far NUMA node */
-  int node = get_far_node();
-  header_t *hp = numa_alloc_onnode(bytes, node);
-  if (hp == NULL) caml_raise_out_of_memory();
-
-  /* Manually write the OCaml Out-of-Heap block header.
-     Tag 0 is a standard array. */
-  *hp = Caml_out_of_heap_header(wosize, 0);
-
-  /* Step past the header to get the OCaml value pointer */
-  value arr = Val_hp(hp);
-
-  /* Initialize the array fields */
-  for (mlsize_t i = 0; i < wosize; i++) {
-    Field(arr, i) = init;
+  mlsize_t first = 0;
+  if (Is_block(init) && Is_young(init)) {
+    /* Rather than create [size] major-to-minor references, store [init]
+       once through the write barrier and empty the minor heap, then read
+       back its promoted address. */
+    caml_modify(&Field(res, 0), init);
+    CAML_EV_COUNTER (EV_C_FORCE_MINOR_MAKE_VECT, 1);
+    caml_minor_collection ();
+    init = Field(res, 0);
+    first = 1;
   }
+  CAMLassert(!(Is_block(init) && Is_young(init)));
+  for (mlsize_t i = first; i < size; i++)
+    caml_initialize(&Field(res, i), init);
 
-  /* Register as a global root so the GC traces its elements */
-  register_far_array(arr);
-
-  return arr;
+  /* Give the GC a chance to run, and run memprof callbacks */
+  caml_process_pending_actions ();
+  CAMLreturn (res);
 }
 
 /* [len] is a [value] representing number of floats */
@@ -395,24 +366,15 @@ CAMLprim value caml_array_create_float_far(value far, value len)
     return caml_array_create_float(len);
   }
 
-  /* Float arrays take Double_wosize (usually 1 word per float on 64-bit) */
   mlsize_t wosize = Long_val(len) * Double_wosize;
   if (wosize == 0) return Atom(0);
+  if (wosize > Max_wosize) caml_invalid_argument("Float.Array.create");
 
-  size_t bytes = (wosize + 1) * sizeof(value);
+  /* Floats are unboxed, so there are no fields to initialize. */
+  value res = caml_alloc_shr_far(wosize, Double_array_tag);
 
-  int node = get_far_node();
-  header_t *hp = numa_alloc_onnode(bytes, node);
-  if (hp == NULL) caml_raise_out_of_memory();
-
-  /* Tag 254 is Double_array_tag */
-  *hp = Caml_out_of_heap_header(wosize, Double_array_tag);
-
-  value arr = Val_hp(hp);
-
-  register_far_array(arr);
-
-  return arr;
+  /* Give the GC a chance to run, and run memprof callbacks */
+  return caml_process_pending_actions_with_root(res);
 }
 
 /* This primitive is used internally by the compiler to compile

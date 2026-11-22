@@ -36,6 +36,8 @@ extern "C" {
 CAMLextern value caml_alloc_shr (mlsize_t wosize, tag_t);
 CAMLextern value caml_alloc_shr_noexc(mlsize_t wosize, tag_t);
 CAMLextern value caml_alloc_shr_reserved (mlsize_t, tag_t, reserved_t);
+/* Allocate directly in far memory (see caml/far_heap.h). */
+CAMLextern value caml_alloc_shr_far (mlsize_t wosize, tag_t);
 
 CAMLextern void caml_adjust_gc_speed (mlsize_t, mlsize_t);
 CAMLextern void caml_adjust_minor_gc_speed (mlsize_t, mlsize_t);
