@@ -64,7 +64,9 @@ val make : ?far:bool -> int -> 'a -> 'a array
    moved out of far memory. Values that are young (recently allocated)
    when they are stored in a far array, or in another far value, are
    moved into far memory by the next minor collection, together with the
-   young values reachable from them.
+   young values reachable from them. Other values reachable from far
+   memory are moved into far memory by compaction ({!Gc.compact}). Moving
+   a value cannot be observed by the program.
    All the elements of this new array are initially
    physically equal to [x] (in the sense of the [==] predicate).
    Consequently, if [x] is mutable, it is shared among all elements
