@@ -1163,10 +1163,18 @@ static inline void compact_update_value(void* ignored,
     /* MARKED header status means the location `p` points to a block that
        has been evacuated (pool blocks only) or migrated to far memory (pool
        blocks and large allocations). Use the forwarding pointer in the
-       first field to update to the new location. */
+       first field to update to the new location. Follow the forwarding
+       pointers until a block that has not moved: a block migrated to far
+       memory would be forwarded twice if its copy were then evacuated
+       within the far heap. (Migrated copies are allocated at the head of
+       the far pool lists, which evacuation always retains, so this should
+       not happen, but it is cheap to be robust to it.) */
     if (Has_status_val(v, caml_global_heap_state.MARKED)) {
-      value fwd = Field(v, 0) + infix_offset;
-      CAMLassert(Is_block(fwd));
+      do {
+        v = Field(v, 0);
+        CAMLassert(Is_block(v));
+      } while (Has_status_val(v, caml_global_heap_state.MARKED));
+      value fwd = v + infix_offset;
       CAMLassert(Tag_val(fwd) == tag);
       *p = fwd;
     }
@@ -1576,86 +1584,13 @@ static void far_migrate_finish(void)
   far_mig.moved_len = far_mig.moved_size = 0;
 }
 
-/* Compact the heap for the given domain. Run in parallel for all domains. */
-
-void caml_compact_heap(caml_domain_state* domain_state,
-                         int participating_count,
-                         caml_domain_state** participants,
-                         int far_seeded)
+/* Evacuate the partially filled pools of [heap] that are not needed to
+   hold their size class's live blocks, moving those blocks into the
+   retained pools. Returns the evacuated pools, to be freed once all
+   pointers to the moved blocks have been updated. Used for both the near
+   heap and the far sub-heap: blocks never move between the two here. */
+static pool* compact_evacuate(struct caml_heap_state* heap)
 {
-  caml_gc_log("Compacting heap start");
-  CAML_EV_BEGIN(EV_COMPACT);
-  /* Warning: caml_compact_heap must only be called from
-     [stw_cycle_all_domains] in major_gc.c as there are
-     very specific conditions the compaction algorithm expects.
-
-    The following code implements a compaction algorithm that is similar to
-    Edward's Two-Finger algorithm from the original 1974 LISP book (The
-    Programming Language LISP). At a high level the algorithm works as a series
-    of parallel (using all running domains) phases separated by global barriers:
-
-    1. For each size class
-      a. Compute the number of live blocks in partially filled pools
-      b. Keep enough pools to fully contain the number of live blocks and
-         set the rest to be evacuated
-      c. For each live block in each pool in the evacuation list,
-         allocate and copy into a non-evacuating pool.
-    2. Proceed through the roots and the heap, updating pointers to evacuated
-       blocks to point to the new location of the block. Update finalisers and
-       ephemerons too.
-    3. Go through pools evacuated and release them. Finally free all but
-        one pool in the freelist.
-    4. One domain needs to release the pools in the freelist back to the OS.
-
-    The algorithm requires one full pass through the whole heap (pools and large
-    allocations) to rewrite pointers, as well as two passes through the
-    partially-occupied pools in the heap to compute the number of live blocks
-    and evacuate them.
-  */
-
-  /* First phase. Here we compute the number of live blocks in partially
-  filled pools, determine pools to be evacuated and then evacuate from them.
-  For the first phase we need not consider full pools, they
-  cannot be evacuated to or from. */
-  caml_global_barrier(participating_count);
-  CAML_EV_BEGIN(EV_COMPACT_EVACUATE);
-
-  struct caml_heap_state* heap = Caml_state->shared_heap;
-
-  #ifdef DEBUG
-  /* Check preconditions for the heap (near and far): */
-  for (sizeclass sz_class = 1; sz_class < NUM_SIZECLASSES; sz_class++) {
-    for (int far = 0; far < 2; far++) {
-      struct caml_heap_state* h = far ? heap->far_heap : heap;
-      /* No sweeping has happened yet */
-      CAMLassert(h->avail_pools[sz_class] == NULL);
-      CAMLassert(h->full_pools[sz_class] == NULL);
-      CAMLassert(h->swept_large == NULL);
-      /* No pools waiting for adoption */
-      if (participants[0] == Caml_state) {
-        CAMLassert(
-          atomic_load_relaxed(&pool_freelists[far].global_avail_pools[sz_class])
-            == NULL);
-        CAMLassert(
-          atomic_load_relaxed(&pool_freelists[far].global_full_pools[sz_class])
-            == NULL);
-      }
-    }
-    /* The minor heap is empty */
-    CAMLassert(Caml_state->young_ptr == Caml_state->young_end);
-    /* The mark stack is empty */
-    CAMLassert(caml_mark_stack_is_empty());
-  }
-  #endif
-
-  /* Far migration: one domain moves the near blocks reachable from far
-     memory into far memory, before any evacuation, while the others wait.
-     The moved blocks are left with forwarding pointers, which the second
-     phase below follows. */
-  if (participants[0] == Caml_state)
-    far_migrate(participating_count, participants, far_seeded);
-  caml_global_barrier(participating_count);
-
   /* All evacuated pools (of every size class) */
   pool *evacuated_pools = NULL;
 
@@ -1861,6 +1796,94 @@ void caml_compact_heap(caml_domain_state* domain_state,
     }
   }
 
+  return evacuated_pools;
+}
+
+/* Compact the heap for the given domain. Run in parallel for all domains. */
+
+void caml_compact_heap(caml_domain_state* domain_state,
+                         int participating_count,
+                         caml_domain_state** participants,
+                         int far_seeded)
+{
+  caml_gc_log("Compacting heap start");
+  CAML_EV_BEGIN(EV_COMPACT);
+  /* Warning: caml_compact_heap must only be called from
+     [stw_cycle_all_domains] in major_gc.c as there are
+     very specific conditions the compaction algorithm expects.
+
+    The following code implements a compaction algorithm that is similar to
+    Edward's Two-Finger algorithm from the original 1974 LISP book (The
+    Programming Language LISP). At a high level the algorithm works as a series
+    of parallel (using all running domains) phases separated by global barriers:
+
+    1. For each size class
+      a. Compute the number of live blocks in partially filled pools
+      b. Keep enough pools to fully contain the number of live blocks and
+         set the rest to be evacuated
+      c. For each live block in each pool in the evacuation list,
+         allocate and copy into a non-evacuating pool.
+    2. Proceed through the roots and the heap, updating pointers to evacuated
+       blocks to point to the new location of the block. Update finalisers and
+       ephemerons too.
+    3. Go through pools evacuated and release them. Finally free all but
+        one pool in the freelist.
+    4. One domain needs to release the pools in the freelist back to the OS.
+
+    The algorithm requires one full pass through the whole heap (pools and large
+    allocations) to rewrite pointers, as well as two passes through the
+    partially-occupied pools in the heap to compute the number of live blocks
+    and evacuate them.
+  */
+
+  /* First phase. Here we compute the number of live blocks in partially
+  filled pools, determine pools to be evacuated and then evacuate from them.
+  For the first phase we need not consider full pools, they
+  cannot be evacuated to or from. */
+  caml_global_barrier(participating_count);
+  CAML_EV_BEGIN(EV_COMPACT_EVACUATE);
+
+  struct caml_heap_state* heap = Caml_state->shared_heap;
+
+  #ifdef DEBUG
+  /* Check preconditions for the heap (near and far): */
+  for (sizeclass sz_class = 1; sz_class < NUM_SIZECLASSES; sz_class++) {
+    for (int far = 0; far < 2; far++) {
+      struct caml_heap_state* h = far ? heap->far_heap : heap;
+      /* No sweeping has happened yet */
+      CAMLassert(h->avail_pools[sz_class] == NULL);
+      CAMLassert(h->full_pools[sz_class] == NULL);
+      CAMLassert(h->swept_large == NULL);
+      /* No pools waiting for adoption */
+      if (participants[0] == Caml_state) {
+        CAMLassert(
+          atomic_load_relaxed(&pool_freelists[far].global_avail_pools[sz_class])
+            == NULL);
+        CAMLassert(
+          atomic_load_relaxed(&pool_freelists[far].global_full_pools[sz_class])
+            == NULL);
+      }
+    }
+    /* The minor heap is empty */
+    CAMLassert(Caml_state->young_ptr == Caml_state->young_end);
+    /* The mark stack is empty */
+    CAMLassert(caml_mark_stack_is_empty());
+  }
+  #endif
+
+  /* Far migration: one domain moves the near blocks reachable from far
+     memory into far memory, before any evacuation, while the others wait.
+     The moved blocks are left with forwarding pointers, which the second
+     phase below follows. */
+  if (participants[0] == Caml_state)
+    far_migrate(participating_count, participants, far_seeded);
+  caml_global_barrier(participating_count);
+
+  /* Evacuate the near heap and the far sub-heap separately, so that each
+     is compacted within itself. */
+  pool *evacuated_pools = compact_evacuate(heap);
+  pool *evacuated_far_pools = compact_evacuate(heap->far_heap);
+
   CAML_EV_END(EV_COMPACT_EVACUATE);
   caml_global_barrier(participating_count);
   CAML_EV_BEGIN(EV_COMPACT_FORWARD);
@@ -1927,19 +1950,22 @@ void caml_compact_heap(caml_domain_state* domain_state,
       Note that we may have no "available" pools left, if all
       remaining pools have been filled up by evacuated blocks. */
 
-  pool* cur_pool = evacuated_pools;
-  while (cur_pool) {
-    pool* next_pool = cur_pool->next;
+  for (int far = 0; far < 2; far++) {
+    struct caml_heap_state* h = far ? heap->far_heap : heap;
+    pool* cur_pool = far ? evacuated_far_pools : evacuated_pools;
+    while (cur_pool) {
+      pool* next_pool = cur_pool->next;
 
-    #ifdef DEBUG
-    for (header_t *p = POOL_FIRST_BLOCK(cur_pool, cur_pool->sz);
-         p < POOL_END(cur_pool); p++) {
-      *p = Debug_free_major;
+      #ifdef DEBUG
+      for (header_t *p = POOL_FIRST_BLOCK(cur_pool, cur_pool->sz);
+           p < POOL_END(cur_pool); p++) {
+        *p = Debug_free_major;
+      }
+      #endif
+
+      pool_free(h, cur_pool, cur_pool->sz);
+      cur_pool = next_pool;
     }
-    #endif
-
-    pool_free(heap, cur_pool, cur_pool->sz);
-    cur_pool = next_pool;
   }
 
   CAML_EV_END(EV_COMPACT_RELEASE);

@@ -65,7 +65,9 @@ memory too:
   program calls `Gc.compact ()`.
 
 Moving a value can't be observed by the program: sharing and mutation behave
-as usual.
+as usual. Compaction (`Gc.compact ()`, or an automatic migration) also packs
+live far values into fewer far pages, without moving anything out of far
+memory.
 
 === Runtime parameters
 
