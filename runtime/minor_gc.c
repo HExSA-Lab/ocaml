@@ -24,6 +24,7 @@
 #include "caml/domain.h"
 #include "caml/runtime_events.h"
 #include "caml/fail.h"
+#include "caml/far_heap.h"
 #include "caml/fiber.h"
 #include "caml/finalise.h"
 #include "caml/gc.h"
@@ -149,11 +150,18 @@ struct oldify_state {
   caml_domain_state* domain;
 };
 
+/* Allocate the promoted copy of a young block. [far] is set when the block
+   is being promoted on behalf of a slot in far memory (see
+   caml/far_heap.h): the copy is then allocated in far memory too. Since
+   the fields of a far copy are themselves far slots, everything young that
+   is reachable only from far memory is promoted into far memory. */
 static value alloc_shared(caml_domain_state* d,
-                          mlsize_t wosize, tag_t tag, reserved_t reserved)
+                          mlsize_t wosize, tag_t tag, reserved_t reserved,
+                          int far)
 {
-  void* mem = caml_shared_try_alloc(d->shared_heap, wosize, tag,
-                                    reserved);
+  void* mem = far
+    ? caml_shared_try_alloc_far(d->shared_heap, wosize, tag, reserved)
+    : caml_shared_try_alloc(d->shared_heap, wosize, tag, reserved);
   caml_update_major_allocated_words(
     d, Whsize_wosize(wosize), 0 /* promoted, not direct */);
   if (mem == NULL) {
@@ -246,6 +254,7 @@ static void oldify_one (void* st_v, value v, volatile value *p)
   mlsize_t sz;
   mlsize_t infix_offset;
   tag_t tag;
+  int far;
 
   tail_call:
   if (!(Is_block(v) && Is_young(v))) {
@@ -253,6 +262,9 @@ static void oldify_one (void* st_v, value v, volatile value *p)
     *p = v;
     return;
   }
+
+  /* Promote into far memory if the referencing slot is in far memory. */
+  far = Is_far_addr((void*)p);
 
   infix_offset = 0;
   do {
@@ -276,7 +288,7 @@ static void oldify_one (void* st_v, value v, volatile value *p)
     value stack_value = Field(v, 0);
     CAMLassert(Wosize_hd(hd) == 2);
     CAMLassert(infix_offset == 0);
-    result = alloc_shared(st->domain, 2, Cont_tag, Reserved_hd(hd));
+    result = alloc_shared(st->domain, 2, Cont_tag, Reserved_hd(hd), far);
     if( try_update_object_header(v, p, result, 0) ) {
       struct stack_info* stk = Ptr_val(stack_value);
       Field(result, 0) = stack_value;
@@ -300,7 +312,7 @@ static void oldify_one (void* st_v, value v, volatile value *p)
     value field0;
     sz = Wosize_hd (hd);
     st->live_bytes += Bhsize_hd(hd);
-    result = alloc_shared(st->domain, sz, tag, Reserved_hd(hd));
+    result = alloc_shared(st->domain, sz, tag, Reserved_hd(hd), far);
     field0 = Field(v, 0);
     if (tag == Closure_tag) {
       /* We must copy all infix tags before updating the object
@@ -346,7 +358,7 @@ static void oldify_one (void* st_v, value v, volatile value *p)
   } else if (tag >= No_scan_tag) {
     sz = Wosize_hd (hd);
     st->live_bytes += Bhsize_hd(hd);
-    result = alloc_shared(st->domain, sz, tag, Reserved_hd(hd));
+    result = alloc_shared(st->domain, sz, tag, Reserved_hd(hd), far);
     for (mlsize_t i = 0; i < sz; i++) {
       Field(result, i) = Field(v, i);
     }
@@ -379,7 +391,7 @@ static void oldify_one (void* st_v, value v, volatile value *p)
       /* Do not short-circuit the pointer.  Copy as a normal block. */
       CAMLassert (Wosize_hd (hd) == 1);
       st->live_bytes += Bhsize_hd(hd);
-      result = alloc_shared(st->domain, 1, Forward_tag, Reserved_hd(hd));
+      result = alloc_shared(st->domain, 1, Forward_tag, Reserved_hd(hd), far);
       if( try_update_object_header(v, p, result, 0) ) {
         p = Op_val (result);
         v = f;
@@ -401,6 +413,13 @@ static void oldify_one (void* st_v, value v, volatile value *p)
 typedef struct {
   bool locked_ephemerons;
 } promote_result;
+
+/* Which pass of the remembered set (see [caml_empty_minor_heap_promote])
+   handles the slot [p]: 0 for slots in far memory, 1 for the rest. */
+Caml_inline int remembered_in_pass(volatile value* p, int pass)
+{
+  return (Is_far_addr((void*)p) ? 0 : 1) == pass;
+}
 
 /* Finish the work that was put off by [oldify_one].
    Note that [oldify_one] itself is called by oldify_mopup, so we
@@ -563,6 +582,13 @@ caml_empty_minor_heap_promote(caml_domain_state* domain,
 
  CAML_EV_BEGIN(EV_MINOR_REMEMBERED_SET);
 
+  /* The remembered set is processed in two passes: first the slots in far
+     memory, then the rest. The young values reachable from far slots (and
+     everything young reachable from them, via [oldify_mopup]) are thus
+     promoted into far memory even when they are also referenced from near
+     memory. The first pass is skipped if no far memory exists. */
+  for (int pass = caml_far_end ? 0 : 1; pass < 2; pass++) {
+
   if( participating_count > 1 ) {
     int participating_idx = -1;
 
@@ -618,8 +644,10 @@ caml_empty_minor_heap_promote(caml_domain_state* domain,
            attempt to promote the same value; this is fine, but we need the
            writes and reads (here, `*pr`) to be at least `volatile`. */
         value_ptr pr = *r;
-        oldify_one (&st, *pr, pr);
-        remembered_roots++;
+        if (remembered_in_pass(pr, pass)) {
+          oldify_one (&st, *pr, pr);
+          remembered_roots++;
+        }
       }
 
       c = (c+1) % participating_count;
@@ -631,10 +659,18 @@ caml_empty_minor_heap_promote(caml_domain_state* domain,
     for( r = self_minor_tables->major_ref.base ;
       r < self_minor_tables->major_ref.ptr ; r++ )
     {
-      oldify_one (&st, **r, *r);
-      remembered_roots++;
+      if (remembered_in_pass(*r, pass)) {
+        oldify_one (&st, **r, *r);
+        remembered_roots++;
+      }
     }
   }
+
+  /* Finish promoting what is reachable from far slots before the near
+     slots get a chance to promote it into near memory. */
+  if (pass == 0) oldify_mopup (&st, 0);
+
+  } /* for pass */
 
   #ifdef DEBUG
     caml_global_barrier(participating_count);
