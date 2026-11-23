@@ -27,6 +27,7 @@
 #include "caml/domain.h"
 #include "caml/runtime_events.h"
 #include "caml/fail.h"
+#include "caml/far_heap.h"
 #include "caml/fiber.h"
 #include "caml/finalise.h"
 #include "caml/globroots.h"
@@ -1129,7 +1130,72 @@ struct mark_stack {
   uintnat size;
   struct addrmap compressed_stack;
   addrmap_iterator compressed_stack_iter;
+
+  /* The near children of far blocks found by this domain's marking in the
+     current cycle (see [far_edge_record]). If [far_edges_overflow] is set,
+     the record is incomplete. */
+  value* far_edges;
+  uintnat far_edges_len;
+  uintnat far_edges_size;
+  int far_edges_overflow;
 };
+
+/* Far-to-near pointers.
+
+   While marking, every pointer from a far block to a near block is counted,
+   and the near block is recorded in the marking domain's mark stack. At the
+   end of the cycle, if the count reaches OCAMLRUNPARAM=f, far migration
+   runs (as part of a compaction, see shared_heap.c), starting from the
+   recorded blocks: they and everything near reachable from them are moved
+   into far memory.
+
+   The recorded blocks were marked in this cycle, so they are still live
+   when the cycle ends. Pointers created after a far block was scanned are
+   missed in this cycle, and found by the next one. */
+
+/* Far-to-near pointers marked in the current cycle, by all domains. */
+static atomic_uintnat far_edges_count = 0;
+
+/* Whether the cycle ending now runs far migration (set by a single domain
+   during the stop-the-world section, read by all after a barrier). */
+static int far_migration_requested = 0;
+
+/* Bound on the size of each domain's record, in entries. Beyond it, far
+   migration falls back to scanning all far blocks. */
+#define FAR_EDGES_MAX_LEN ((uintnat)1 << 20)
+
+static void far_edge_record(struct mark_stack* stk, value child)
+{
+  if (stk->far_edges_len == stk->far_edges_size) {
+    uintnat new_size = stk->far_edges_size ? 2 * stk->far_edges_size : 256;
+    value* new_edges;
+    if (stk->far_edges_overflow) return;
+    if (new_size > FAR_EDGES_MAX_LEN
+        || (new_edges = caml_stat_resize_noexc(stk->far_edges,
+                                               new_size * sizeof(value)))
+           == NULL) {
+      stk->far_edges_overflow = 1;
+      return;
+    }
+    stk->far_edges = new_edges;
+    stk->far_edges_size = new_size;
+  }
+  stk->far_edges[stk->far_edges_len++] = child;
+}
+
+int caml_far_edges(caml_domain_state* d, value** edges, uintnat* len)
+{
+  struct mark_stack* stk = d->mark_stack;
+  *edges = stk->far_edges;
+  *len = stk->far_edges_len;
+  return !stk->far_edges_overflow;
+}
+
+static void far_edges_clear(struct mark_stack* stk)
+{
+  stk->far_edges_len = 0;
+  stk->far_edges_overflow = 0;
+}
 
 #ifdef DEBUG
 #define Is_markable(v) \
@@ -1429,6 +1495,7 @@ Caml_noinline static intnat do_some_marking(struct mark_stack* stk,
      so that they can be stored in registers */
   struct global_heap_state heap_state = caml_global_heap_state;
   uintnat blocks_marked = 0;
+  uintnat far_edges = 0;
 
   while (1) {
     if (pb_above_waterline(&pb)) {
@@ -1515,6 +1582,9 @@ again:
       scan_end = me.start + scan_len;
     }
 
+    /* Is the block being scanned in far memory? */
+    int far_block = Is_far_addr((void*)me.start);
+
     for (; me.start < scan_end; me.start++) {
       CAMLassert(budget >= 0);
 
@@ -1524,6 +1594,10 @@ again:
       if (Is_markable(child)) {
         if (pb_full(&pb))
           break;
+        if (far_block && !Is_far_addr((void*)child)) {
+          far_edges++;
+          far_edge_record(stk, child);
+        }
         prefetch_block(child);
         pb_push(&pb, child);
       }
@@ -1544,6 +1618,7 @@ again:
   }
 
   Caml_state->stat_blocks_marked += blocks_marked;
+  if (far_edges) atomic_fetch_add(&far_edges_count, far_edges);
   CAMLassert(pb_size(&pb) == 0);
   return budget;
 }
@@ -1763,6 +1838,17 @@ static void cycle_major_heap_from_stw_single(
   caml_gc_log("GC cycle %" CAML_PRIuNAT " completed (heap cycled)",
               caml_major_cycles_completed);
 
+  /* Decide whether this cycle ends with far migration. */
+  {
+    uintnat edges = atomic_exchange(&far_edges_count, 0);
+    uintnat threshold = caml_params->far_migrate_threshold;
+    far_migration_requested = threshold != 0 && edges >= threshold;
+    if (edges != 0)
+      caml_gc_log("Far-to-near pointers marked: %" CAML_PRIuNAT
+                  " (threshold %" CAML_PRIuNAT ")%s", edges, threshold,
+                  far_migration_requested ? ", migrating" : "");
+  }
+
   caml_major_cycles_completed++;
   CAML_GC_MESSAGE(SLICESIZE, "Starting major GC cycle\n");
 
@@ -1889,10 +1975,17 @@ static void stw_cycle_all_domains(
   caml_cycle_heap(domain->shared_heap);
 
   /* Compact here if requested (or, in some future version, if the heap overhead
-      is too high). */
-  if (params.force_compaction) {
-    caml_compact_heap(domain, participating_count, participating);
+      is too high), or to migrate values reachable from far memory into far
+      memory. An explicit compaction migrates everything reachable from far
+      memory; an automatic one starts from the far-to-near pointers recorded
+      during marking. */
+  if (params.force_compaction || far_migration_requested) {
+    caml_compact_heap(domain, participating_count, participating,
+                      !params.force_compaction);
   }
+  /* The compaction (if any) is over on all domains: its last barrier is
+     after the far migration read the records. */
+  far_edges_clear(domain->mark_stack);
 
   /* Update GC stats (as these could have significantly changed if there was a
       compaction) */
@@ -2457,6 +2550,10 @@ int caml_init_major_gc(caml_domain_state* d) {
   caml_addrmap_init(&d->mark_stack->compressed_stack);
   d->mark_stack->compressed_stack_iter =
                   caml_addrmap_iterator(&d->mark_stack->compressed_stack);
+  d->mark_stack->far_edges = NULL;
+  d->mark_stack->far_edges_len = 0;
+  d->mark_stack->far_edges_size = 0;
+  d->mark_stack->far_edges_overflow = 0;
 
   if (caml_gc_phase == Phase_sweep_main) {
     /* This fresh domain will allocate UNMARKED until we start
@@ -2510,6 +2607,7 @@ void caml_teardown_major_gc(void) {
   caml_addrmap_clear(&d->mark_stack->compressed_stack);
   CAMLassert(d->mark_stack->count == 0);
   caml_stat_free(d->mark_stack->stack);
+  caml_stat_free(d->mark_stack->far_edges);
   caml_stat_free(d->mark_stack);
   d->mark_stack = NULL;
 }

@@ -51,20 +51,65 @@ To link OCaml with `libnuma`, configure like so:
 `LIBS="-lnuma" LDFLAGS="-lnuma" ./configure`. Now you can build as normal and
 run programs that make use of the `far` parameter.
 
-=== Choosing the far NUMA node
+=== How far memory works
 
-By default, arrays created with `~far:true` (and the objects they point to)
-are allocated on NUMA node 1. To use a different node, set the `N` parameter
-in `OCAMLRUNPARAM` when you run the program, for example:
+Far arrays live in a part of the major heap that is backed by the far NUMA
+node. They are garbage-collected like any other array, and the GC never moves
+them back to near memory. The values a far array points to are moved into far
+memory too:
+
+* Values that are still young (recently allocated) when they are stored into
+  a far array, or into another far value, move at the next minor collection.
+* Other values reachable from far memory, including large blocks, move at the
+  end of the next major GC cycle that finds them (see `f` below), or when the
+  program calls `Gc.compact ()`.
+
+Moving a value can't be observed by the program: sharing and mutation behave
+as usual.
+
+=== Runtime parameters
+
+These are set in `OCAMLRUNPARAM` when you run the program, for example:
 
 ----
-OCAMLRUNPARAM='N=0' ./my_program
+OCAMLRUNPARAM='N=0,f=0' ./my_program
 ----
 
-The runtime reads this setting once at startup. It works for both native and
-bytecode executables, so you don't need to recompile. If the requested node
-doesn't exist, or libnuma reports that NUMA isn't available, the runtime falls
-back to node 0.
+The runtime reads them once at startup. They work for both native and bytecode
+executables, so you don't need to recompile.
+
+[cols="1,1,4"]
+|===
+| Parameter | Default | Meaning
+
+| `N`
+| `1`
+| NUMA node that backs far memory. If the node doesn't exist, or libnuma
+  reports that NUMA isn't available, far memory is left unbound: the kernel
+  places its pages on whichever node first touches them, usually the node the
+  program runs on.
+
+| `F`
+| `64G`
+| Size of the virtual address range reserved for far memory. Only address
+  space is reserved; physical pages are allocated as they are used. Accepts
+  the `k`, `M` and `G` suffixes. Allocating more far memory than this raises
+  `Out_of_memory`.
+
+| `f`
+| `1`
+| Automatic far migration threshold. While marking, each major GC cycle counts
+  the pointers from far memory to near memory. If the count reaches this
+  value, the runtime moves the near values into far memory at the end of the
+  cycle. This is a stop-the-world pass over the whole heap, like
+  `Gc.compact ()`. `0` disables automatic migration, so it only happens when
+  the program calls `Gc.compact ()`.
+|===
+
+To see what far memory and migration are doing, enable the GC debug log with
+`OCAMLRUNPARAM='v=0x800'`. Lines mentioning "Far" report where the far region
+was reserved and which node it is bound to, how many far-to-near pointers each
+cycle found, and how many blocks and words each migration moved.
 
 == Overview
 

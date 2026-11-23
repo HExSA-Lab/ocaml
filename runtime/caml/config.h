@@ -253,6 +253,11 @@ typedef uintptr_t uintnat;
 /* Default size of the far memory virtual reservation, in bytes
    (OCAMLRUNPARAM=F). Only virtual address space; pages are faulted in on
    demand. */
+/* Default number of far-to-near pointers found by a major GC's marking
+   that triggers far migration at the end of the cycle
+   (OCAMLRUNPARAM=f). 0 disables automatic migration. */
+#define Far_migrate_threshold_def 1
+
 #ifdef ARCH_SIXTYFOUR
 #define Far_region_bsz_def ((uintnat)64 * 1024 * 1024 * 1024)
 #else

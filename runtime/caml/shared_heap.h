@@ -62,9 +62,13 @@ uintnat caml_heap_size(struct caml_heap_state*);
 uintnat caml_top_heap_words(struct caml_heap_state*);
 uintnat caml_heap_blocks(struct caml_heap_state*);
 
+/* If [far_seeded] is set, far migration starts from the far-to-near
+   pointers recorded by marking (see [caml_far_edges]) rather than from all
+   far blocks. */
 void caml_compact_heap(caml_domain_state* domain_state,
                          int participating_count,
-                         caml_domain_state** participants);
+                         caml_domain_state** participants,
+                         int far_seeded);
 
 void caml_shared_unpin(value v);
 

@@ -61,6 +61,7 @@ struct caml_params {
 
   uintnat far_numa_node;  /* NUMA node backing far memory */
   uintnat far_region_bsz; /* size of the far region reservation */
+  uintnat far_migrate_threshold; /* far->near pointers that trigger migration */
 };
 
 extern const struct caml_params* const caml_params;

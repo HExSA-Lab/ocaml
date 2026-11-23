@@ -161,6 +161,17 @@ Size of the per-domain runtime events ring buffers in log powers of
 two words. Defaults to 16, giving 64k word or 512kb buffers on 64-bit
 systems.
 .TP
+.B f " (far_migrate_threshold)"
+Number of pointers from far memory to near memory, found while marking
+during a major GC cycle, that triggers far migration at the end of the
+cycle: the values reachable from far memory are then moved into far
+memory (see
+.BR N ).
+This is a stop-the-world pass over the whole heap, like a compaction.
+0 disables automatic migration (it then only happens on
+.BR Gc.compact ).
+Defaults to 1.
+.TP
 .B F " (far_region_size)"
 Size, in bytes, of the virtual address range reserved for far memory
 (see
