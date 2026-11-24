@@ -308,7 +308,7 @@ jobs:
     needs: config
     container:
       image: debian:13
-      options: --platform linux/i386 --user root
+      options: --platform linux/i386 --user root --cap-add=SYS_NICE
     steps:
       - name: OS Dependencies
         run: |
