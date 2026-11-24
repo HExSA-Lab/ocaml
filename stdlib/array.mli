@@ -51,11 +51,17 @@ external set : 'a array -> int -> 'a -> unit = "%array_safe_set"
    if [n] is outside the range 0 to [length a - 1]. *)
 
 external is_far : 'a array -> bool = "caml_is_far_array"
-(** Return true if an array is on the far NUMA node, false if it is not. *)
+(** Return true if an array's block lives in far memory, false if it
+    does not. The empty array is never far. *)
 
 val make : ?far:bool -> int -> 'a -> 'a array
 (** [make n x] returns a fresh array of length [n],
    initialized with [x].
+
+   If [far] is [true], the array is allocated in far memory: the part of
+   the major heap backed by the far NUMA node (see [OCAMLRUNPARAM=N]).
+   Far arrays are garbage-collected like any other array, and are never
+   moved out of far memory.
    All the elements of this new array are initially
    physically equal to [x] (in the sense of the [==] predicate).
    Consequently, if [x] is mutable, it is shared among all elements

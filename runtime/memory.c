@@ -417,12 +417,13 @@ CAMLexport void caml_set_fields (value obj, value v)
 }
 
 Caml_inline value alloc_shr(mlsize_t wosize, tag_t tag, reserved_t reserved,
-                            int noexc)
+                            int noexc, int far)
 {
   Caml_check_caml_state();
   caml_domain_state *dom_st = Caml_state;
-  value *v = caml_shared_try_alloc(dom_st->shared_heap,
-                                   wosize, tag, reserved);
+  value *v = far
+    ? caml_shared_try_alloc_far(dom_st->shared_heap, wosize, tag, reserved)
+    : caml_shared_try_alloc(dom_st->shared_heap, wosize, tag, reserved);
   if (v == NULL) {
     if (!noexc)
       caml_raise_out_of_memory();
@@ -452,19 +453,24 @@ Caml_inline value alloc_shr(mlsize_t wosize, tag_t tag, reserved_t reserved,
 
 CAMLexport value caml_alloc_shr(mlsize_t wosize, tag_t tag)
 {
-  return alloc_shr(wosize, tag, 0, 0);
+  return alloc_shr(wosize, tag, 0, 0, 0);
+}
+
+CAMLexport value caml_alloc_shr_far(mlsize_t wosize, tag_t tag)
+{
+  return alloc_shr(wosize, tag, 0, 0, 1);
 }
 
 CAMLexport value caml_alloc_shr_reserved(mlsize_t wosize,
                                          tag_t tag,
                                          reserved_t reserved)
 {
-  return alloc_shr(wosize, tag, reserved, 0);
+  return alloc_shr(wosize, tag, reserved, 0, 0);
 }
 
 
 CAMLexport value caml_alloc_shr_noexc(mlsize_t wosize, tag_t tag) {
-  return alloc_shr(wosize, tag, 0, 1);
+  return alloc_shr(wosize, tag, 0, 1, 0);
 }
 
 /* Global memory pool.
