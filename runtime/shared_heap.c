@@ -1316,6 +1316,10 @@ static value* compact_take_block(struct caml_heap_state* heap, sizeclass sz)
    reference to it. Afterwards, [far_migrate_finish] turns the old copies
    into garbage for the next sweep.
 
+   The walk starts either from all live far blocks, or (for automatic
+   migrations, see major_gc.c) from the near blocks that marking found to be
+   pointed to by far blocks, which is much cheaper when few are.
+
    This runs on one domain only, before evacuation, since it moves blocks
    out of every domain's heap. The copies are allocated in that domain's far
    sub-heap, directly into its unswept lists so that the update phase (and
@@ -1328,6 +1332,8 @@ struct far_migration {
   /* Old (near) copies of the blocks moved so far. */
   value* moved;
   uintnat moved_len, moved_size;
+  /* Total size of the blocks moved so far, in words (with headers). */
+  uintnat moved_words;
 };
 
 /* Only used by the domain doing the migration, during compaction. */
@@ -1417,9 +1423,25 @@ static value far_mig_move(struct caml_heap_state* far, value v)
 
   /* The copy keeps the UNMARKED (live) status of the original. */
   memcpy(new_hp, old_hp, Bsize_wsize(whsize));
+  far_mig.moved_words += whsize;
   Field(v, 0) = Val_hp(new_hp);
   *old_hp = With_status_hd(hd, caml_global_heap_state.MARKED);
   return Val_hp(new_hp);
+}
+
+/* If [c] is a live near block, move it into far memory and queue the copy
+   for scanning. Returns 0 if out of memory. */
+static int far_mig_visit(struct caml_heap_state* far, value c)
+{
+  if (!Is_block(c)) return 1;
+  CAMLassert(!Is_young(c));
+  if (Tag_val(c) == Infix_tag) c -= Infix_offset_val(c);
+  if (Is_far_addr((void*)c)) return 1;
+  /* Skip static data (NOT_MARKABLE) and blocks already moved (MARKED). */
+  if (!Has_status_val(c, caml_global_heap_state.UNMARKED)) return 1;
+
+  value copy = far_mig_move(far, c);
+  return copy != 0 && far_mig_push_scan(copy);
 }
 
 /* Move the near children of the far block [v] into far memory, and queue
@@ -1435,16 +1457,7 @@ static int far_mig_scan(struct caml_heap_state* far, value v)
   if (tag == Closure_tag) i = Start_env_closinfo(Closinfo_val(v));
 
   for (; i < Wosize_hd(hd); i++) {
-    value c = Field(v, i);
-    if (!Is_block(c)) continue;
-    CAMLassert(!Is_young(c));
-    if (Tag_val(c) == Infix_tag) c -= Infix_offset_val(c);
-    if (Is_far_addr((void*)c)) continue;
-    /* Skip static data (NOT_MARKABLE) and blocks already moved (MARKED). */
-    if (!Has_status_val(c, caml_global_heap_state.UNMARKED)) continue;
-
-    value copy = far_mig_move(far, c);
-    if (copy == 0 || !far_mig_push_scan(copy)) return 0;
+    if (!far_mig_visit(far, Field(v, i))) return 0;
   }
   return 1;
 }
@@ -1481,32 +1494,65 @@ static int far_mig_seed(struct caml_heap_state* h)
 }
 
 /* Move everything near that is reachable from far memory into far memory.
-   Run by a single domain, while the others wait. If memory runs out, the
-   migration stops early: what was moved so far is consistent. */
+   Run by a single domain, while the others wait. If [seeded], start from
+   the far-to-near pointers recorded by marking, unless a record is
+   incomplete. If memory runs out, the migration stops early: what was
+   moved so far is consistent. */
 static void far_migrate(int participating_count,
-                        caml_domain_state** participants)
+                        caml_domain_state** participants, int seeded)
 {
   struct caml_heap_state* far = Caml_state->shared_heap->far_heap;
+  uintnat num_seeds = 0;
   int ok = 1;
 
   far_mig.stack_len = 0;
   far_mig.moved_len = 0;
+  far_mig.moved_words = 0;
 
   /* No far memory, nothing to do. */
   if (caml_far_end == 0) return;
 
-  /* Collect all the far blocks first, then scan them: moving allocates into
-     the far pools, which must not change while they are being walked. */
-  for (int d = 0; ok && d < participating_count; d++)
-    ok = far_mig_seed(participants[d]->shared_heap->far_heap);
+  if (seeded) {
+    value* edges;
+    uintnat len;
+    for (int d = 0; seeded && d < participating_count; d++)
+      seeded = caml_far_edges(participants[d], &edges, &len);
+    if (!seeded)
+      caml_gc_log("Far migration: pointer record overflowed, "
+                  "scanning all far blocks");
+  }
+
+  if (seeded) {
+    /* Move the recorded near blocks; their copies are queued, so what is
+       reachable from them follows. */
+    for (int d = 0; ok && d < participating_count; d++) {
+      value* edges;
+      uintnat len;
+      caml_far_edges(participants[d], &edges, &len);
+      num_seeds += len;
+      for (uintnat i = 0; ok && i < len; i++)
+        ok = far_mig_visit(far, edges[i]);
+    }
+  } else {
+    /* Collect all the far blocks first, then scan them: moving allocates
+       into the far pools, which must not change while they are walked. */
+    for (int d = 0; ok && d < participating_count; d++)
+      ok = far_mig_seed(participants[d]->shared_heap->far_heap);
+  }
 
   while (ok && far_mig.stack_len > 0)
     ok = far_mig_scan(far, far_mig.stack[--far_mig.stack_len]);
 
   if (!ok)
     caml_gc_log("Far migration: out of memory, stopping early");
-  caml_gc_log("Far migration: moved %" CAML_PRIuNAT " blocks",
-              far_mig.moved_len);
+  if (seeded)
+    caml_gc_log("Far migration (from %" CAML_PRIuNAT " recorded pointers): "
+                "moved %" CAML_PRIuNAT " blocks, %" CAML_PRIuNAT " words",
+                num_seeds, far_mig.moved_len, far_mig.moved_words);
+  else
+    caml_gc_log("Far migration (all far blocks): moved %" CAML_PRIuNAT
+                " blocks, %" CAML_PRIuNAT " words",
+                far_mig.moved_len, far_mig.moved_words);
 
   caml_stat_free(far_mig.stack);
   far_mig.stack = NULL;
@@ -1534,7 +1580,8 @@ static void far_migrate_finish(void)
 
 void caml_compact_heap(caml_domain_state* domain_state,
                          int participating_count,
-                         caml_domain_state** participants)
+                         caml_domain_state** participants,
+                         int far_seeded)
 {
   caml_gc_log("Compacting heap start");
   CAML_EV_BEGIN(EV_COMPACT);
@@ -1606,7 +1653,7 @@ void caml_compact_heap(caml_domain_state* domain_state,
      The moved blocks are left with forwarding pointers, which the second
      phase below follows. */
   if (participants[0] == Caml_state)
-    far_migrate(participating_count, participants);
+    far_migrate(participating_count, participants, far_seeded);
   caml_global_barrier(participating_count);
 
   /* All evacuated pools (of every size class) */

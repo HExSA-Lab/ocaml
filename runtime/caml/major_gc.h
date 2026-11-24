@@ -45,6 +45,13 @@ void caml_major_collection_slice (intnat);
 void caml_finish_sweeping(void);
 void caml_finish_marking (void);
 int caml_init_major_gc(caml_domain_state*);
+
+/* The near blocks pointed to by far blocks, as recorded by domain [d]'s
+   marking in the current cycle (with duplicates). Returns 0 if the record
+   overflowed, and is therefore incomplete. Only valid during the
+   stop-the-world section at the end of a cycle. */
+int caml_far_edges(caml_domain_state* d, value** edges, uintnat* len);
+
 void caml_teardown_major_gc(void);
 void caml_darken(void*, value, volatile value* ignored);
 void caml_darken_cont(value);

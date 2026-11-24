@@ -65,8 +65,9 @@ val make : ?far:bool -> int -> 'a -> 'a array
    when they are stored in a far array, or in another far value, are
    moved into far memory by the next minor collection, together with the
    young values reachable from them. Other values reachable from far
-   memory are moved into far memory by compaction ({!Gc.compact}). Moving
-   a value cannot be observed by the program.
+   memory are moved into far memory at the end of the major GC cycle that
+   finds them (see [OCAMLRUNPARAM=f]), or by {!Gc.compact}. Moving a value
+   cannot be observed by the program.
    All the elements of this new array are initially
    physically equal to [x] (in the sense of the [==] predicate).
    Consequently, if [x] is mutable, it is shared among all elements
