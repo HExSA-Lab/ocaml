@@ -1160,16 +1160,15 @@ static inline void compact_update_value(void* ignored,
     if (Has_status_val(v, NOT_MARKABLE))
       return;
 
-    if (Whsize_val(v) <= SIZECLASS_MAX) {
-      /* MARKED header status means the location `p` points to a block that
-         has been evacuated. Use the forwarding pointer in the first field
-         to update to the new location. */
-      if (Has_status_val(v, caml_global_heap_state.MARKED)) {
-        value fwd = Field(v, 0) + infix_offset;
-        CAMLassert(Is_block(fwd));
-        CAMLassert(Tag_val(fwd) == tag);
-        *p = fwd;
-      }
+    /* MARKED header status means the location `p` points to a block that
+       has been evacuated (pool blocks only) or migrated to far memory (pool
+       blocks and large allocations). Use the forwarding pointer in the
+       first field to update to the new location. */
+    if (Has_status_val(v, caml_global_heap_state.MARKED)) {
+      value fwd = Field(v, 0) + infix_offset;
+      CAMLassert(Is_block(fwd));
+      CAMLassert(Tag_val(fwd) == tag);
+      *p = fwd;
     }
   }
 }
@@ -1267,6 +1266,270 @@ static void compact_update_ephe_list(volatile value *ephe_p)
   }
 }
 
+/* Take the first free block of the first unswept avail pool of size class
+   [sz] in [heap] (there must be one), moving that pool to the unswept full
+   pools if this fills it. Used during compaction, when all pools are on the
+   unswept lists. */
+static value* compact_take_block(struct caml_heap_state* heap, sizeclass sz)
+{
+  pool* to_pool = heap->unswept_avail_pools[sz];
+  mlsize_t wh = wsize_sizeclass[sz];
+  value* new_p = to_pool->next_obj;
+  CAMLassert(POOL_BLOCK_FREE_HP(new_p));
+  /* if there are free blocks after this, use those */
+  mlsize_t wosize = Wosize_hp(new_p);
+  if( wosize > 0 ) {
+    /* copy the header and free pointer over */
+    value* next = (value*)(new_p + wh);
+
+    CAMLassert(POOL_FIRST_BLOCK(to_pool, sz) <= (header_t*)next);
+    CAMLassert((header_t*)next <= POOL_END(to_pool));
+
+    *next = POOL_FREE_HEADER(wosize - 1);
+    next[1] = new_p[1];
+    to_pool->next_obj = next;
+  } else {
+    value *next = (value*)new_p[1];
+    to_pool->next_obj = next;
+
+    if (!next) {
+      /* This pool is full. Move it to unswept_full_pools */
+      heap->unswept_avail_pools[sz] = to_pool->next;
+      to_pool->next = heap->unswept_full_pools[sz];
+      heap->unswept_full_pools[sz] = to_pool;
+    }
+  }
+  return new_p;
+}
+
+/* Far migration.
+
+   At compaction, live near blocks that are reachable from far blocks are
+   moved into far memory, so that everything reachable from far memory ends
+   up there even if it was already old when it was stored (the minor GC only
+   promotes young values into far memory, see minor_gc.c). Both pool blocks
+   and large allocations are moved.
+
+   A moved block is left behind with header status MARKED and a forwarding
+   pointer in its first field, exactly like a block evacuated by the
+   compactor, so the compactor's pointer-update phase redirects every
+   reference to it. Afterwards, [far_migrate_finish] turns the old copies
+   into garbage for the next sweep.
+
+   This runs on one domain only, before evacuation, since it moves blocks
+   out of every domain's heap. The copies are allocated in that domain's far
+   sub-heap, directly into its unswept lists so that the update phase (and
+   the next sweep) visits them. */
+
+struct far_migration {
+  /* Far blocks whose fields remain to be scanned. */
+  value* stack;
+  uintnat stack_len, stack_size;
+  /* Old (near) copies of the blocks moved so far. */
+  value* moved;
+  uintnat moved_len, moved_size;
+};
+
+/* Only used by the domain doing the migration, during compaction. */
+static struct far_migration far_mig;
+
+static int far_mig_push(value** arr, uintnat* len, uintnat* size, value v)
+{
+  if (*len == *size) {
+    uintnat new_size = *size ? 2 * *size : 1024;
+    value* new_arr = caml_stat_resize_noexc(*arr, new_size * sizeof(value));
+    if (new_arr == NULL) return 0;
+    *arr = new_arr;
+    *size = new_size;
+  }
+  (*arr)[(*len)++] = v;
+  return 1;
+}
+
+static int far_mig_push_scan(value v)
+{
+  return far_mig_push(&far_mig.stack, &far_mig.stack_len,
+                      &far_mig.stack_size, v);
+}
+
+/* Allocate a pool block for [whsize] words in the unswept pools of the far
+   heap [far], acquiring a new pool if needed. */
+static header_t* far_mig_alloc_pooled(struct caml_heap_state* far,
+                                      mlsize_t whsize)
+{
+  sizeclass sz = sizeclass_wsize[whsize];
+  if (far->unswept_avail_pools[sz] == NULL) {
+    pool* r = pool_acquire(far);
+    if (r == NULL) return NULL;
+    far->stats.pool_words += POOL_WSIZE;
+    if (far->stats.pool_words > far->stats.pool_max_words)
+      far->stats.pool_max_words = far->stats.pool_words;
+    far->stats.pool_frag_words += POOL_HEADER_WSIZE + wastage_sizeclass[sz];
+    pool_initialize(r, sz, far->owner);
+    far->unswept_avail_pools[sz] = r;
+  }
+  far->stats.pool_live_blocks++;
+  far->stats.pool_live_words += whsize;
+  far->stats.pool_frag_words += wsize_sizeclass[sz] - whsize;
+  return (header_t*)compact_take_block(far, sz);
+}
+
+/* Allocate a large allocation for [whsize] words in the far heap [far],
+   filed as unswept. */
+static header_t* far_mig_alloc_large(struct caml_heap_state* far,
+                                     mlsize_t whsize)
+{
+  header_t* hp = large_allocate(far, Bsize_wsize(whsize));
+  if (hp == NULL) return NULL;
+  /* [large_allocate] filed it as swept; move it to the unswept list. */
+  large_alloc* a = far->swept_large;
+  CAMLassert((char*)a + LARGE_ALLOC_HEADER_SZ == (char*)hp);
+  far->swept_large = a->next;
+  a->next = far->unswept_large;
+  far->unswept_large = a;
+  return hp;
+}
+
+/* Move the live near block [v] into the far heap [far], leaving a
+   forwarding pointer behind. Returns the new copy, or 0 if out of memory. */
+static value far_mig_move(struct caml_heap_state* far, value v)
+{
+  header_t* old_hp = (header_t*)Hp_val(v);
+  header_t hd = *old_hp;
+  mlsize_t whsize = Whsize_hd(hd);
+  header_t* new_hp;
+
+  CAMLassert(Has_status_hd(hd, caml_global_heap_state.UNMARKED));
+  CAMLassert(!Is_far_addr((void*)v));
+
+  /* Record the old copy first, so that a failure leaves nothing to undo. */
+  if (!far_mig_push(&far_mig.moved, &far_mig.moved_len,
+                    &far_mig.moved_size, v))
+    return 0;
+
+  new_hp = whsize <= SIZECLASS_MAX
+    ? far_mig_alloc_pooled(far, whsize)
+    : far_mig_alloc_large(far, whsize);
+  if (new_hp == NULL) {
+    far_mig.moved_len--;
+    return 0;
+  }
+
+  /* The copy keeps the UNMARKED (live) status of the original. */
+  memcpy(new_hp, old_hp, Bsize_wsize(whsize));
+  Field(v, 0) = Val_hp(new_hp);
+  *old_hp = With_status_hd(hd, caml_global_heap_state.MARKED);
+  return Val_hp(new_hp);
+}
+
+/* Move the near children of the far block [v] into far memory, and queue
+   the copies for scanning. Returns 0 if out of memory. */
+static int far_mig_scan(struct caml_heap_state* far, value v)
+{
+  header_t hd = Hd_val(v);
+  tag_t tag = Tag_hd(hd);
+  mlsize_t i = 0;
+
+  /* Continuation stacks live outside the heap and are not followed. */
+  if (tag >= No_scan_tag || tag == Cont_tag) return 1;
+  if (tag == Closure_tag) i = Start_env_closinfo(Closinfo_val(v));
+
+  for (; i < Wosize_hd(hd); i++) {
+    value c = Field(v, i);
+    if (!Is_block(c)) continue;
+    CAMLassert(!Is_young(c));
+    if (Tag_val(c) == Infix_tag) c -= Infix_offset_val(c);
+    if (Is_far_addr((void*)c)) continue;
+    /* Skip static data (NOT_MARKABLE) and blocks already moved (MARKED). */
+    if (!Has_status_val(c, caml_global_heap_state.UNMARKED)) continue;
+
+    value copy = far_mig_move(far, c);
+    if (copy == 0 || !far_mig_push_scan(copy)) return 0;
+  }
+  return 1;
+}
+
+/* Queue every live block of the far heap [h] for scanning. */
+static int far_mig_seed(struct caml_heap_state* h)
+{
+  for (sizeclass sz = 1; sz < NUM_SIZECLASSES; sz++) {
+    pool* lists[2] = { h->unswept_avail_pools[sz], h->unswept_full_pools[sz] };
+    mlsize_t wh = wsize_sizeclass[sz];
+    for (int l = 0; l < 2; l++) {
+      for (pool* r = lists[l]; r != NULL; r = r->next) {
+        header_t* p = POOL_FIRST_BLOCK(r, sz);
+        header_t* end = POOL_END(r);
+        while (p + wh <= end) {
+          header_t hd = *p;
+          if (POOL_BLOCK_FREE_HD(hd)) {
+            p += wh * Wosize_hd(hd); /* skip contiguous free blocks */
+          } else if (Has_status_hd(hd, caml_global_heap_state.UNMARKED)) {
+            if (!far_mig_push_scan(Val_hp(p))) return 0;
+          }
+          p += wh;
+        }
+      }
+    }
+  }
+  for (large_alloc* a = h->unswept_large; a != NULL; a = a->next) {
+    header_t* p = (header_t*)((char*)a + LARGE_ALLOC_HEADER_SZ);
+    if (Has_status_hd(*p, caml_global_heap_state.UNMARKED)
+        && !far_mig_push_scan(Val_hp(p)))
+      return 0;
+  }
+  return 1;
+}
+
+/* Move everything near that is reachable from far memory into far memory.
+   Run by a single domain, while the others wait. If memory runs out, the
+   migration stops early: what was moved so far is consistent. */
+static void far_migrate(int participating_count,
+                        caml_domain_state** participants)
+{
+  struct caml_heap_state* far = Caml_state->shared_heap->far_heap;
+  int ok = 1;
+
+  far_mig.stack_len = 0;
+  far_mig.moved_len = 0;
+
+  /* No far memory, nothing to do. */
+  if (caml_far_end == 0) return;
+
+  /* Collect all the far blocks first, then scan them: moving allocates into
+     the far pools, which must not change while they are being walked. */
+  for (int d = 0; ok && d < participating_count; d++)
+    ok = far_mig_seed(participants[d]->shared_heap->far_heap);
+
+  while (ok && far_mig.stack_len > 0)
+    ok = far_mig_scan(far, far_mig.stack[--far_mig.stack_len]);
+
+  if (!ok)
+    caml_gc_log("Far migration: out of memory, stopping early");
+  caml_gc_log("Far migration: moved %" CAML_PRIuNAT " blocks",
+              far_mig.moved_len);
+
+  caml_stat_free(far_mig.stack);
+  far_mig.stack = NULL;
+  far_mig.stack_len = far_mig.stack_size = 0;
+}
+
+/* Once every reference to the moved blocks has been updated, turn their
+   old copies into garbage, to be reclaimed by the next sweep. They become
+   Abstract so that the sweep does not run Custom finalisers for them (the
+   live copy owns the resources now). Old copies in evacuated pools are
+   freed with their pool instead; overwriting their headers is harmless. */
+static void far_migrate_finish(void)
+{
+  for (uintnat i = 0; i < far_mig.moved_len; i++) {
+    header_t* hp = (header_t*)Hp_val(far_mig.moved[i]);
+    *hp = Make_header(Wosize_hd(*hp), Abstract_tag,
+                      caml_global_heap_state.GARBAGE);
+  }
+  caml_stat_free(far_mig.moved);
+  far_mig.moved = NULL;
+  far_mig.moved_len = far_mig.moved_size = 0;
+}
+
 /* Compact the heap for the given domain. Run in parallel for all domains. */
 
 void caml_compact_heap(caml_domain_state* domain_state,
@@ -1337,6 +1600,14 @@ void caml_compact_heap(caml_domain_state* domain_state,
     CAMLassert(caml_mark_stack_is_empty());
   }
   #endif
+
+  /* Far migration: one domain moves the near blocks reachable from far
+     memory into far memory, before any evacuation, while the others wait.
+     The moved blocks are left with forwarding pointers, which the second
+     phase below follows. */
+  if (participants[0] == Caml_state)
+    far_migrate(participating_count, participants);
+  caml_global_barrier(participating_count);
 
   /* All evacuated pools (of every size class) */
   pool *evacuated_pools = NULL;
@@ -1478,7 +1749,6 @@ void caml_compact_heap(caml_domain_state* domain_state,
         header_t hd = (header_t)atomic_load_relaxed((atomic_uintnat*)p);
 
         if (!POOL_BLOCK_FREE_HD(hd)) {
-          CAMLassert (!Has_status_hd(hd, caml_global_heap_state.MARKED));
           CAMLassert (!Has_status_hd(hd, NOT_MARKABLE));
 
           /* Reminder: since colours have rotated, UNMARKED indicates a MARKED
@@ -1486,35 +1756,7 @@ void caml_compact_heap(caml_domain_state* domain_state,
           if (Has_status_hd(hd, caml_global_heap_state.UNMARKED)) {
             /* live block in an evacuating pool, so we evacuate it to
              * the first available block */
-            pool* to_pool = heap->unswept_avail_pools[sz_class];
-            value* new_p = to_pool->next_obj;
-            CAMLassert(POOL_BLOCK_FREE_HP(new_p));
-            /* if there are free blocks after this, use those */
-            mlsize_t wosize = Wosize_hp(new_p);
-            if( wosize > 0 ) {
-              /* copy the header and free pointer over */
-              value* next = (value*)(new_p + wh);
-
-              CAMLassert(
-                POOL_FIRST_BLOCK(to_pool, sz_class) <= (header_t*)next
-              );
-
-              CAMLassert((header_t*)next <= POOL_END(to_pool));
-
-              *next = POOL_FREE_HEADER(wosize - 1);
-              next[1] = new_p[1];
-              to_pool->next_obj = next;
-            } else {
-              value *next = (value*)new_p[1];
-              to_pool->next_obj = next;
-
-              if (!next) {
-                /* This pool is full. Move it to unswept_full_pools */
-                heap->unswept_avail_pools[sz_class] = to_pool->next;
-                to_pool->next = heap->unswept_full_pools[sz_class];
-                heap->unswept_full_pools[sz_class] = to_pool;
-              }
-            }
+            value* new_p = compact_take_block(heap, sz_class);
 
             /* Copy the block to the new location */
             memcpy(new_p, p, Whsize_hd(hd) * sizeof(value));
@@ -1526,6 +1768,14 @@ void caml_compact_heap(caml_domain_state* domain_state,
               to indicate that a block has been evacuated and any pointers to
               it should be updated. */
             *p = With_status_hd(hd, caml_global_heap_state.MARKED);
+          } else if (Has_status_hd(hd, caml_global_heap_state.MARKED)) {
+            /* Already moved to far memory by [far_migrate]. The pool is
+               freed with this block in it, so stop counting it as live
+               here; its forwarding pointer must stay intact until the
+               pointers to it have been updated. */
+            heap->stats.pool_live_blocks--;
+            heap->stats.pool_live_words -= Whsize_hd(hd);
+            heap->stats.pool_frag_words -= (wh - Whsize_hd(hd));
           } else if (Has_status_hd(hd, caml_global_heap_state.GARBAGE)) {
             /* We are implicitly sweeping pools in the evacuation set and thus
                we must remember to call finalisers for Custom blocks that would
@@ -1614,6 +1864,14 @@ void caml_compact_heap(caml_domain_state* domain_state,
 
   CAML_EV_END(EV_COMPACT_FORWARD);
   caml_global_barrier(participating_count);
+
+  /* All references to the blocks moved to far memory are updated: their
+     old copies can become garbage. This must happen before evacuated pools
+     (which may contain some of them) are released below. */
+  if (participants[0] == Caml_state)
+    far_migrate_finish();
+  caml_global_barrier(participating_count);
+
   CAML_EV_BEGIN(EV_COMPACT_RELEASE);
 
   /* Third phase: free all evacuated pools and release the mappings back to
