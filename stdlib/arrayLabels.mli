@@ -61,7 +61,10 @@ val make : ?far:bool -> int -> 'a -> 'a array
    If [far] is [true], the array is allocated in far memory: the part of
    the major heap backed by the far NUMA node (see [OCAMLRUNPARAM=N]).
    Far arrays are garbage-collected like any other array, and are never
-   moved out of far memory.
+   moved out of far memory. Values that are young (recently allocated)
+   when they are stored in a far array, or in another far value, are
+   moved into far memory by the next minor collection, together with the
+   young values reachable from them.
    All the elements of this new array are initially
    physically equal to [x] (in the sense of the [==] predicate).
    Consequently, if [x] is mutable, it is shared among all elements
