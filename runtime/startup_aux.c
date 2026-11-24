@@ -63,6 +63,8 @@ static void init_startup_params(void)
   params.init_max_stack_wsz = Max_stack_def;
   params.max_domains = Max_domains_def;
   params.runtime_events_log_wsize = Default_runtime_events_log_wsize;
+  params.far_numa_node = Far_numa_node_def;
+  params.far_region_bsz = Far_region_bsz_def;
 
 #ifdef DEBUG
   atomic_store_relaxed(&caml_verb_gc, CAML_GC_MSG_VERBOSE | CAML_GC_MSG_MINOR);
@@ -112,10 +114,12 @@ void caml_parse_ocamlrunparam(void)
       case 'c': scanmult (opt, &params.cleanup_on_exit); break;
       case 'd': scanmult (opt, &params.max_domains); break;
       case 'e': scanmult (opt, &params.runtime_events_log_wsize); break;
+      case 'F': scanmult (opt, &params.far_region_bsz); break;
       case 'l': scanmult (opt, &params.init_max_stack_wsz); break;
       case 'M': scanmult (opt, &params.init_custom_major_ratio); break;
       case 'm': scanmult (opt, &params.init_custom_minor_ratio); break;
       case 'n': scanmult (opt, &params.init_custom_minor_max_bsz); break;
+      case 'N': scanmult (opt, &params.far_numa_node); break;
       case 'o': scanmult (opt, &params.init_percent_free); break;
       case 'p': scanmult (opt, &params.parser_trace); break;
       case 'R': break; /*  see stdlib/hashtbl.mli */

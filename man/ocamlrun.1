@@ -161,6 +161,13 @@ Size of the per-domain runtime events ring buffers in log powers of
 two words. Defaults to 16, giving 64k word or 512kb buffers on 64-bit
 systems.
 .TP
+.B F " (far_region_size)"
+Size, in bytes, of the virtual address range reserved for far memory
+(see
+.BR N ).
+Only address space is reserved; pages are allocated on first use.
+Defaults to 64G on 64-bit platforms.
+.TP
 .BR l " (stack_limit)"
 The limit (in words) of the stack size.
 .TP
@@ -199,6 +206,11 @@ Note: this only applies to values allocated with
 .B caml_alloc_custom_mem
 (e.g. bigarrays).
 Default: 8192 bytes.
+.TP
+.B N " (far_numa_node)"
+The NUMA node that backs the far part of the major heap. If libnuma is
+unavailable or the node does not exist, far memory is left unbound.
+Defaults to 1.
 .TP
 .BR o " (space_overhead)"
 The main major GC speed setting.

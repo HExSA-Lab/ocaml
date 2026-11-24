@@ -45,6 +45,11 @@ void caml_free_shared_heap(struct caml_heap_state* heap);
 value* caml_shared_try_alloc(struct caml_heap_state*,
                              mlsize_t, tag_t, reserved_t);
 
+/* Like [caml_shared_try_alloc], but allocates in the far sub-heap of the
+   given (near) heap. See caml/far_heap.h. */
+value* caml_shared_try_alloc_far(struct caml_heap_state*,
+                                 mlsize_t, tag_t, reserved_t);
+
 /* Copy the domain-local heap stats into a heap stats sample. */
 void caml_collect_heap_stats_sample(
   struct caml_heap_state* local,
